@@ -1,0 +1,251 @@
+# ============================================================
+# Standby 后端服务 — Docker Compose
+# ============================================================
+# 架构: PostgreSQL一体化 + Qdrant向量 + Redis缓存 + NATS事件
+# 无MongoDB — 所有数据存储在PostgreSQL
+# ============================================================
+
+version: "3.9"
+
+services:
+  # ============================================================
+  # 数据层
+  # ============================================================
+
+  # PostgreSQL + pgvector (主数据库)
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: standby-postgres
+    environment:
+      POSTGRES_DB: standby
+      POSTGRES_USER: standby
+      POSTGRES_PASSWORD: standby_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U standby"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Qdrant (向量数据库)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: standby-qdrant
+    ports:
+      - "6333:6333"   # REST API
+      - "6334:6334"   # gRPC API
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__CLUSTER__ENABLED: "false"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Dragonfly (缓存, Redis 兼容)
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+    container_name: standby-dragonfly
+    ports:
+      - "6379:6379"
+    ulimits:
+      memlock: -1
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # NATS (消息总线)
+  nats:
+    image: nats:2.10-alpine
+    container_name: standby-nats
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222"   # 客户端
+      - "8222:8222"   # 监控
+    volumes:
+      - natsdata:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # MinIO (对象存储 - 媒体文件)
+  minio:
+    image: minio/minio
+    container_name: standby-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # API
+      - "9001:9001"   # Console
+    volumes:
+      - minio_data:/data
+    environment:
+      MINIO_ROOT_USER: standby
+      MINIO_ROOT_PASSWORD: standby_dev_password
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # AI 引擎层 (Python)
+  # ============================================================
+
+  # 共鸣机制引擎
+  resonance-engine:
+    build:
+      context: .
+      dockerfile: engines/Dockerfile.python
+      args:
+        ENGINE_NAME: resonance_engine
+    image: standby-resonance:latest
+    container_name: standby-resonance
+    ports:
+      - "8091:8091"
+    environment:
+      NATS_URL: nats://nats:4222
+      DB_POSTGRES: postgres://standby:standby_dev_password@postgres:5432/standby
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import grpc; print('ok')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # 锚点生成引擎
+  anchor-engine:
+    build:
+      context: .
+      dockerfile: engines/Dockerfile.python
+      args:
+        ENGINE_NAME: anchor_engine
+    image: standby-anchor:latest
+    container_name: standby-anchor
+    ports:
+      - "8090:8090"
+    environment:
+      NATS_URL: nats://nats:4222
+      DB_POSTGRES: postgres://standby:standby_dev_password@postgres:5432/standby
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+
+  # 内容治理引擎
+  governance-engine:
+    build:
+      context: .
+      dockerfile: engines/Dockerfile.python
+      args:
+        ENGINE_NAME: governance_engine
+    image: standby-governance:latest
+    container_name: standby-governance
+    ports:
+      - "8092:8092"
+    environment:
+      NATS_URL: nats://nats:4222
+      DB_POSTGRES: postgres://standby:standby_dev_password@postgres:5432/standby
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+
+  # 用户管理引擎
+  user-engine:
+    build:
+      context: .
+      dockerfile: engines/Dockerfile.python
+      args:
+        ENGINE_NAME: user_engine
+    image: standby-user:latest
+    container_name: standby-user
+    ports:
+      - "8093:8093"
+    environment:
+      NATS_URL: nats://nats:4222
+      DB_POSTGRES: postgres://standby:standby_dev_password@postgres:5432/standby
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+
+  # 情境感知引擎
+  context-engine:
+    build:
+      context: .
+      dockerfile: engines/Dockerfile.python
+      args:
+        ENGINE_NAME: context_engine
+    image: standby-context:latest
+    container_name: standby-context
+    ports:
+      - "8094:8094"
+    environment:
+      NATS_URL: nats://nats:4222
+      LOG_LEVEL: INFO
+    depends_on:
+      nats:
+        condition: service_healthy
+
+  # ============================================================
+  # 网关层 (Rust)
+  # ============================================================
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: src/gateway/Dockerfile
+    image: standby-gateway:latest
+    container_name: standby-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      GATEWAY_PORT: 8080
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
+      ENGINE_RESONANCE: http://resonance-engine:8091
+      ENGINE_ANCHOR: http://anchor-engine:8090
+      ENGINE_GOVERNANCE: http://governance-engine:8092
+      ENGINE_USER: http://user-engine:8093
+      ENGINE_CONTEXT: http://context-engine:8094
+      NATS_URL: nats://nats:4222
+    depends_on:
+      resonance-engine:
+        condition: service_started
+      anchor-engine:
+        condition: service_started
+      governance-engine:
+        condition: service_started
+      user-engine:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  qdrant_data:
+  natsdata:
+  minio_data:

@@ -1,0 +1,380 @@
+syntax = "proto3";
+
+package standby.gateway;
+
+option go_package = "standby/proto/gateway";
+option java_package = "com.standby.proto.gateway";
+
+import "common/common.proto";
+
+// ============================================================
+// 认证服务
+// ============================================================
+
+service AuthService {
+  // 设备认证 — 客户端首次启动或 token 过期时调用
+  rpc DeviceAuth(DeviceAuthRequest) returns (DeviceAuthResponse);
+  
+  // 刷新令牌
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  
+  // 登出
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+}
+
+message DeviceAuthRequest {
+  standby.common.DeviceInfo device = 1;
+  string phone_number_hash = 2;    // 手机号哈希 (注册时)
+  string verification_code = 3;    // 验证码 (注册时)
+  string existing_token = 4;       // 已有 token (刷新时)
+}
+
+message DeviceAuthResponse {
+  bool success = 1;
+  string access_token = 2;         // JWT
+  string refresh_token = 3;
+  int64 expires_at = 4;
+  string user_id = 5;              // 内部 user_id
+  AuthError error = 6;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+  standby.common.DeviceInfo device = 2;
+}
+
+message RefreshTokenResponse {
+  bool success = 1;
+  string access_token = 2;
+  int64 expires_at = 3;
+  AuthError error = 4;
+}
+
+message LogoutRequest {
+  string access_token = 1;
+}
+
+message LogoutResponse {
+  bool success = 1;
+}
+
+enum AuthError {
+  AUTH_ERROR_UNSPECIFIED = 0;
+  INVALID_DEVICE = 1;          // 设备指纹不匹配
+  INVALID_CREDENTIALS = 2;     // 凭证无效
+  DEVICE_LIMIT_EXCEEDED = 3;   // 设备数超限
+  RATE_LIMITED = 4;            // 请求过于频繁
+  PHONE_NOT_VERIFIED = 5;      // 手机号未验证
+}
+
+// ============================================================
+// 锚点服务
+// ============================================================
+
+service AnchorService {
+  // 获取锚点列表 (Feed)
+  rpc ListAnchors(ListAnchorsRequest) returns (ListAnchorsResponse);
+  
+  // 获取单个锚点详情
+  rpc GetAnchor(GetAnchorRequest) returns (GetAnchorResponse);
+  
+  // 获取重现锚点 (含群体记忆)
+  rpc GetReplayAnchors(GetReplayAnchorsRequest) returns (GetReplayAnchorsResponse);
+  
+  // 导入外部内容为锚点素材
+  rpc ImportAnchor(ImportAnchorRequest) returns (ImportAnchorResponse);
+  
+  // 获取锚点下的反应统计
+  rpc GetReactionSummary(GetReactionSummaryRequest) returns (GetReactionSummaryResponse);
+}
+
+message ListAnchorsRequest {
+  standby.common.Pagination pagination = 1;
+  repeated string topic_filter = 2;         // 话题过滤
+  string context_hint = 3;                  // 情境提示 (由情境引擎提供)
+}
+
+message ListAnchorsResponse {
+  repeated standby.common.AnchorSummary anchors = 1;
+  standby.common.PaginatedResponse pagination = 2;
+}
+
+message GetAnchorRequest {
+  string anchor_id = 1;
+}
+
+message GetAnchorResponse {
+  bool found = 1;
+  standby.common.Anchor anchor = 2;
+  standby.common.ReactionSummary my_reaction_summary = 3;  // 当前用户的反应统计
+}
+
+message GetReplayAnchorsRequest {
+  int32 top_k = 1;   // 返回数量, 默认 5
+}
+
+message GetReplayAnchorsResponse {
+  repeated ReplayAnchor anchors = 1;
+}
+
+message ReplayAnchor {
+  standby.common.AnchorSummary summary = 1;
+  string trigger_type = 2;       // "seasonal" / "anniversary" / ...
+  float trigger_score = 3;
+  standby.common.GroupMemory group_memory = 4;
+}
+
+message ImportAnchorRequest {
+  string content_text = 1;        // 用户导入的原始内容
+  string source_url = 2;          // 来源 URL (可选)
+  bytes content_image = 3;        // 图片内容 (可选)
+}
+
+message ImportAnchorResponse {
+  bool accepted = 1;
+  string anchor_id = 2;           // 已创建的锚点 ID (如通过初筛)
+  string message = 3;             // 提示信息
+}
+
+message GetReactionSummaryRequest {
+  string anchor_id = 1;
+}
+
+message GetReactionSummaryResponse {
+  standby.common.ReactionSummary summary = 1;
+}
+
+// ============================================================
+// 反应服务
+// ============================================================
+
+service ReactionService {
+  // 提交反应 (五态 + 可选观点)
+  rpc SubmitReaction(SubmitReactionRequest) returns (SubmitReactionResponse);
+  
+  // 获取锚点下的反应列表 (匿名观点)
+  rpc ListReactions(ListReactionsRequest) returns (ListReactionsResponse);
+  
+  // 获取共鸣痕迹
+  rpc GetResonanceTraces(GetResonanceTracesRequest) returns (GetResonanceTracesResponse);
+}
+
+message SubmitReactionRequest {
+  string anchor_id = 1;
+  standby.common.ReactionType reaction_type = 2;
+  standby.common.EmotionWord emotion_word = 3;    // 可选
+  string opinion_text = 4;                         // 可选
+}
+
+message SubmitReactionResponse {
+  bool success = 1;
+  string reaction_id = 2;
+  float resonance_value = 3;       // 计算后的共鸣值
+  standby.common.ReactionSummary anchor_summary = 4;  // 更新后的统计
+  repeated ResonanceNotification notifications = 5;    // 共鸣通知
+}
+
+message ResonanceNotification {
+  string type = 1;     // "new_trace" / "trust_level_up" / "confidant_eligible"
+  string message = 2;  // 展示文案
+  string related_user_anonymous_name = 3;  // 相关用户的匿名昵称 (如有)
+}
+
+message ListReactionsRequest {
+  string anchor_id = 1;
+  standby.common.ReactionType filter_type = 2;    // 按反应类型过滤 (可选)
+  standby.common.Pagination pagination = 3;
+}
+
+message ListReactionsResponse {
+  repeated ReactionView reactions = 1;
+  standby.common.PaginatedResponse pagination = 2;
+}
+
+message ReactionView {
+  string reaction_id = 1;
+  standby.common.AnonymousIdentity author = 2;    // 匿名身份
+  standby.common.ReactionType reaction_type = 3;
+  standby.common.EmotionWord emotion_word = 4;
+  string opinion_text = 5;
+  bool has_resonance_trace = 6;     // 是否与当前用户有共鸣痕迹
+  string trace_hint = 7;            // 痕迹提示 (如 "你在此人的其他观点上也有过共鸣")
+  int64 created_at = 8;
+}
+
+message GetResonanceTracesRequest {
+  standby.common.Pagination pagination = 1;
+}
+
+message GetResonanceTracesResponse {
+  repeated ResonanceTrace traces = 1;
+  standby.common.PaginatedResponse pagination = 2;
+}
+
+message ResonanceTrace {
+  string trace_id = 1;
+  standby.common.AnonymousIdentity other_user = 2;   // 对方匿名身份
+  float relationship_score = 3;
+  int32 shared_anchors = 4;            // 共同锚点数
+  int32 shared_topics = 5;             // 共同话题数
+  repeated string recent_anchor_titles = 6;  // 最近共鸣的锚点标题
+  standby.common.TrustLevel trust_level = 7;
+}
+
+// ============================================================
+// 用户服务
+// ============================================================
+
+service UserService {
+  // 获取用户档案
+  rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
+  
+  // 获取关系列表
+  rpc ListRelationships(ListRelationshipsRequest) returns (ListRelationshipsResponse);
+  
+  // 表达知己意向
+  rpc ExpressConfidantIntent(ExpressConfidantIntentRequest) returns (ExpressConfidantIntentResponse);
+  
+  // 获取知己列表
+  rpc ListConfidants(ListConfidantsRequest) returns (ListConfidantsResponse);
+}
+
+message GetProfileRequest {}
+
+message GetProfileResponse {
+  string user_id = 1;
+  float credit_score = 2;           // 共鸣信用分
+  float marker_credit = 3;          // 标记者信用分
+  int32 total_reactions = 4;        // 总反应数
+  int32 total_anchors_engaged = 5;  // 参与的锚点数
+  int32 confidant_count = 6;        // 知己数量
+  int64 created_at = 7;
+}
+
+message ListRelationshipsRequest {
+  standby.common.TrustLevel min_level = 1;
+  standby.common.Pagination pagination = 2;
+}
+
+message ListRelationshipsResponse {
+  repeated RelationshipView relationships = 1;
+  standby.common.PaginatedResponse pagination = 2;
+}
+
+message RelationshipView {
+  standby.common.AnonymousIdentity other_user = 1;
+  float relationship_score = 2;
+  int32 topic_diversity = 3;
+  standby.common.TrustLevel trust_level = 4;
+  bool is_confidant = 5;
+  int64 last_resonance_at = 6;
+}
+
+message ExpressConfidantIntentRequest {
+  string target_user_internal_hash = 1;  // 目标用户的内部 hash (系统提供)
+}
+
+message ExpressConfidantIntentResponse {
+  bool success = 1;
+  bool matched = 2;          // 是否已双向匹配
+  string message = 3;        // 提示文案
+}
+
+message ListConfidantsRequest {}
+
+message ListConfidantsResponse {
+  repeated ConfidantView confidants = 1;
+}
+
+message ConfidantView {
+  string confidant_id = 1;
+  string fixed_name = 2;
+  string fixed_avatar_url = 3;
+  float relationship_score = 4;
+  int64 established_at = 5;
+  int64 last_interaction_at = 6;
+}
+
+// ============================================================
+// 情境服务
+// ============================================================
+
+service ContextService {
+  // 提交情境状态 (端侧融合后)
+  rpc SubmitContextState(SubmitContextStateRequest) returns (SubmitContextStateResponse);
+  
+  // 获取情境化的锚点推荐提示
+  rpc GetContextualHint(GetContextualHintRequest) returns (GetContextualHintResponse);
+}
+
+message SubmitContextStateRequest {
+  // 注意: 只提交抽象状态, 不提交原始传感器数据
+  ContextState state = 1;
+}
+
+message ContextState {
+  string scene_type = 1;         // "commute" / "home_relax" / "work_break" / "driving" / ...
+  string mood_hint = 2;          // "calm" / "reflective" / "energetic" / "tired" / ...
+  string attention_level = 3;    // "focused" / "casual" / "distracted"
+  standby.common.DeviceType active_device = 4;
+  int64 timestamp = 5;
+}
+
+message SubmitContextStateResponse {
+  bool accepted = 1;
+}
+
+message GetContextualHintRequest {}
+
+message GetContextualHintResponse {
+  string recommended_scene = 1;    // 推荐的交互场景
+  string mood_suggestion = 2;      // 情绪建议
+  repeated string topic_hints = 3; // 推荐话题
+}
+
+// ============================================================
+// 治理服务 (用户侧)
+// ============================================================
+
+service GovernanceService {
+  // 举报内容
+  rpc ReportContent(ReportContentRequest) returns (ReportContentResponse);
+  
+  // 获取治理状态 (作者查看自己的内容状态)
+  rpc GetContentStatus(GetContentStatusRequest) returns (GetContentStatusResponse);
+  
+  // 申诉
+  rpc AppealDecision(AppealDecisionRequest) returns (AppealDecisionResponse);
+}
+
+message ReportContentRequest {
+  string content_id = 1;
+  standby.common.ContentSource content_type = 2;
+  standby.common.ReactionType report_type = 3;  // 有害 / 未体验
+  string reason = 4;                              // 必须填写理由
+}
+
+message ReportContentResponse {
+  bool accepted = 1;
+  string message = 2;
+}
+
+message GetContentStatusRequest {
+  string content_id = 1;
+}
+
+message GetContentStatusResponse {
+  standby.common.GovernanceLevel level = 1;
+  string status_message = 2;
+  bool can_appeal = 3;
+}
+
+message AppealDecisionRequest {
+  string decision_id = 1;
+  string appeal_reason = 2;
+}
+
+message AppealDecisionResponse {
+  bool accepted = 1;
+  string message = 2;
+}

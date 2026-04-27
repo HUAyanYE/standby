@@ -1,0 +1,7 @@
+# 使用官方 sparse 协议 (Rust 1.68+ 原生支持，不需要国内镜像)
+[registries.crates-io]
+protocol = "sparse"
+
+# 如果网络不通，可以取消注释下面使用 git 协议
+# [net]
+# git-fetch-with-cli = true

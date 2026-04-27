@@ -1,0 +1,86 @@
+{
+  "clustering": {
+    "param_grid": [
+      {
+        "min_topic_size": 3,
+        "n_topics": 2,
+        "n_outliers": 2,
+        "ari": 0.1174,
+        "nmi": 0.3719,
+        "time_ms": 5366
+      },
+      {
+        "min_topic_size": 4,
+        "n_topics": 3,
+        "n_outliers": 12,
+        "ari": 0.309,
+        "nmi": 0.5449,
+        "time_ms": 87
+      },
+      {
+        "min_topic_size": 5,
+        "n_topics": 2,
+        "n_outliers": 7,
+        "ari": 0.1134,
+        "nmi": 0.3368,
+        "time_ms": 50
+      },
+      {
+        "min_topic_size": 6,
+        "n_topics": 2,
+        "n_outliers": 19,
+        "ari": 0.0703,
+        "nmi": 0.2506,
+        "time_ms": 53
+      },
+      {
+        "min_topic_size": 7,
+        "n_topics": 2,
+        "n_outliers": 13,
+        "ari": 0.114,
+        "nmi": 0.2703,
+        "time_ms": 50
+      }
+    ],
+    "best": {
+      "min_topic_size": 4,
+      "n_topics": 3,
+      "n_outliers": 12,
+      "ari": 0.309,
+      "nmi": 0.5449,
+      "time_ms": 87
+    }
+  },
+  "novelty": [
+    {
+      "label": "复述锚点",
+      "relevance": 0.8101,
+      "novelty": 0.43290001153945923,
+      "expected": "低"
+    },
+    {
+      "label": "相似经历",
+      "relevance": 0.7489,
+      "novelty": 0.46050000190734863,
+      "expected": "中"
+    },
+    {
+      "label": "全新角度",
+      "relevance": 0.6036,
+      "novelty": 0.527899980545044,
+      "expected": "高"
+    },
+    {
+      "label": "增量感悟",
+      "relevance": 0.6133,
+      "novelty": 0.5439000129699707,
+      "expected": "高"
+    },
+    {
+      "label": "不相关",
+      "relevance": 0.277,
+      "novelty": 0.0,
+      "expected": "N/A"
+    }
+  ]
+}

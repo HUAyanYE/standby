@@ -1,0 +1,49 @@
+# ============================================================
+# Python 引擎通用 Dockerfile
+# ============================================================
+# 用法: docker build --build-arg ENGINE_NAME=resonance_engine -t standby-resonance .
+# ============================================================
+
+FROM python:3.12-slim AS base
+
+# 安装系统依赖 (使用阿里云镜像源)
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# 工作目录
+WORKDIR /app
+
+# 安装 Python 依赖 (使用清华源)
+COPY engines/requirements.txt .
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+
+# 复制 proto 代码
+COPY src/proto /app/src/proto
+
+# 复制引擎代码
+COPY . .
+
+# 暴露端口
+ARG ENGINE_NAME=resonance_engine
+ENV ENGINE_NAME=${ENGINE_NAME}
+
+# 默认端口映射
+# resonance: 8091, anchor: 8090, governance: 8092
+RUN case "${ENGINE_NAME}" in \
+    resonance_engine) echo "PORT=8091" >> /app/.env ;; \
+    anchor_engine)    echo "PORT=8090" >> /app/.env ;; \
+    governance_engine) echo "PORT=8092" >> /app/.env ;; \
+    user_engine)      echo "PORT=8093" >> /app/.env ;; \
+    *)                echo "PORT=8090" >> /app/.env ;; \
+    esac
+
+EXPOSE 8090 8091 8092
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD python3 -c "import sys; sys.exit(0)"
+
+# 启动引擎服务
+CMD python3 /app/engines/${ENGINE_NAME}/service.py

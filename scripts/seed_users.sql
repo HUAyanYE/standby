@@ -1,0 +1,6 @@
+-- 用户
+INSERT INTO users (phone_hash, internal_token, device_fingerprint, credit_score, marker_credit) VALUES ('hash_night', 'token_night', 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2', 0.5, 0.5) ON CONFLICT (phone_hash) DO NOTHING;
+INSERT INTO users (phone_hash, internal_token, device_fingerprint, credit_score, marker_credit) VALUES ('hash_dawn', 'token_dawn', 'b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3', 0.5, 0.5) ON CONFLICT (phone_hash) DO NOTHING;
+INSERT INTO users (phone_hash, internal_token, device_fingerprint, credit_score, marker_credit) VALUES ('hash_wind', 'token_wind', 'c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4', 0.5, 0.5) ON CONFLICT (phone_hash) DO NOTHING;
+INSERT INTO users (phone_hash, internal_token, device_fingerprint, credit_score, marker_credit) VALUES ('hash_autumn', 'token_autumn', 'd4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5', 0.5, 0.5) ON CONFLICT (phone_hash) DO NOTHING;
+INSERT INTO users (phone_hash, internal_token, device_fingerprint, credit_score, marker_credit) VALUES ('hash_winter', 'token_winter', 'e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6', 0.5, 0.5) ON CONFLICT (phone_hash) DO NOTHING;

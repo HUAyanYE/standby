@@ -1,0 +1,40 @@
+# Standby AI Engines — Python 依赖
+
+# 核心
+numpy>=1.24
+pyyaml>=6.0
+
+# gRPC
+grpcio>=1.60
+grpcio-tools>=1.60
+
+# ML
+sentence-transformers>=2.2
+torch>=2.0 --index-url https://download.pytorch.org/whl/cpu
+
+# NLP
+jieba>=0.42
+
+# 数据处理
+pandas>=2.0
+
+# 聚类
+bertopic>=0.16
+hdbscan>=0.8
+umap-learn>=0.5
+
+# 网络
+httpx>=0.25
+
+# 数据库
+psycopg2-binary>=2.9
+pymongo>=4.6
+
+# NATS
+nats-py>=2.6
+
+# 任务队列
+celery>=5.3
+
+# 工具
+python-dateutil>=2.8

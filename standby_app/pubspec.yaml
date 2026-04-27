@@ -1,0 +1,57 @@
+name: standby_app
+description: Standby — 有共鸣才有真实感想
+publish_to: 'none'
+version: 0.3.0+13
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # HTTP
+  dio: ^5.4.0
+  http: ^1.2.0
+  
+  # gRPC
+  grpc: ^4.0.0
+  protobuf: ^3.1.0
+  
+  # 本地存储
+  shared_preferences: ^2.2.0
+  flutter_secure_storage: ^9.0.0
+  
+  # UI
+  cupertino_icons: ^1.0.6
+  google_fonts: ^6.1.0
+  
+  # 工具
+  intl: ^0.19.0
+  uuid: ^4.2.0
+  crypto: ^3.0.3
+  
+  # 图片选择
+  image_picker: ^1.0.7
+
+  # 系统分享接收
+
+  # 视频播放
+  video_player: ^2.8.0
+
+  # 音频播放
+  audioplayers: ^5.0.0
+
+  # 图片缓存
+  cached_network_image: ^3.3.0
+  
+  # 状态管理
+  provider: ^6.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

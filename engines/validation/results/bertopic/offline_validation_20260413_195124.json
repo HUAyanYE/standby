@@ -1,0 +1,88 @@
+{
+  "clustering": {
+    "param_grid": [
+      {
+        "min_cluster_size": 3,
+        "min_samples": 2,
+        "n_clusters": 0,
+        "n_outliers": 37,
+        "ari": 0.0,
+        "nmi": 0.0
+      },
+      {
+        "min_cluster_size": 4,
+        "min_samples": 2,
+        "n_clusters": 0,
+        "n_outliers": 37,
+        "ari": 0.0,
+        "nmi": 0.0
+      },
+      {
+        "min_cluster_size": 5,
+        "min_samples": 3,
+        "n_clusters": 0,
+        "n_outliers": 37,
+        "ari": 0.0,
+        "nmi": 0.0
+      },
+      {
+        "min_cluster_size": 6,
+        "min_samples": 3,
+        "n_clusters": 0,
+        "n_outliers": 37,
+        "ari": 0.0,
+        "nmi": 0.0
+      },
+      {
+        "min_cluster_size": 7,
+        "min_samples": 3,
+        "n_clusters": 0,
+        "n_outliers": 37,
+        "ari": 0.0,
+        "nmi": 0.0
+      },
+      {
+        "min_cluster_size": 8,
+        "min_samples": 4,
+        "n_clusters": 0,
+        "n_outliers": 37,
+        "ari": 0.0,
+        "nmi": 0.0
+      }
+    ],
+    "best": {
+      "min_cluster_size": 3,
+      "min_samples": 2,
+      "n_clusters": 0,
+      "n_outliers": 37,
+      "ari": 0.0,
+      "nmi": 0.0
+    }
+  },
+  "novelty": [
+    {
+      "label": "复述锚点",
+      "relevance": 0.156,
+      "novelty": 0.0,
+      "expected": "低"
+    },
+    {
+      "label": "相似经历",
+      "relevance": 0.2355,
+      "novelty": 0.0,
+      "expected": "中"
+    },
+    {
+      "label": "全新角度",
+      "relevance": 0.1568,
+      "novelty": 0.0,
+      "expected": "高"
+    },
+    {
+      "label": "不相关",
+      "relevance": 0.0299,
+      "novelty": 0.0,
+      "expected": "N/A"
+    }
+  ]
+}

@@ -1,0 +1,232 @@
+syntax = "proto3";
+
+package standby.common;
+
+option go_package = "standby/proto/common";
+option java_package = "com.standby.proto.common";
+
+// ============================================================
+// 共享枚举
+// ============================================================
+
+// 五态反应类型 (PRD §3.2)
+enum ReactionType {
+  REACTION_TYPE_UNSPECIFIED = 0;
+  RESONANCE = 1;      // 共鸣 — "我也有同样的感受" (强正向)
+  NEUTRAL = 2;        // 无感 — "没什么特别的感觉" (弱信号)
+  OPPOSITION = 3;     // 反对 — "我不同意" (强负向, 也是深度参与)
+  UNEXPERIENCED = 4;  // 未体验 — "我认为 ta 没有体验过" (真实性信号)
+  HARMFUL = 5;        // 有害 — "这是恶意的/虚假的" (治理信号)
+}
+
+// 共鸣情绪词 (PRD §3.2, 可选)
+enum EmotionWord {
+  EMOTION_WORD_UNSPECIFIED = 0;
+  EMPATHY = 1;   // 同感 — "我也有同样的感受"
+  TRIGGER = 2;   // 触发 — "让我想起了……"
+  INSIGHT = 3;   // 启发 — "没这么想过，但你说得对"
+  SHOCK = 4;     // 震撼 — "说不出话"
+}
+
+// 信任级别 (PRD §4.2)
+enum TrustLevel {
+  TRUST_LEVEL_UNSPECIFIED = 0;
+  L0_BROWSE = 1;            // 浏览 — 任何人
+  L1_TRACE_VISIBLE = 2;     // 痕迹可见 — 同锚点有共鸣
+  L2_OPINION_REPLY = 3;     // 观点回应
+  L3_ASYNC_MESSAGE = 4;     // 异步私信
+  L4_REALTIME_CHAT = 5;     // 实时对话
+  L5_GROUP_CHAT = 6;        // 群体对话
+}
+
+// 治理级别 (tech-arch §9.3)
+enum GovernanceLevel {
+  GOVERNANCE_LEVEL_UNSPECIFIED = 0;
+  GOV_NORMAL = 1;     // L0_正常
+  GOV_OBSERVING = 2;  // L1_观察
+  GOV_DEMOTED = 3;    // L2_降权
+  GOV_SUSPENDED = 4;  // L3_暂停
+  GOV_REMOVED = 5;    // L4_移除
+  GOV_CONFLICT = 6;   // 争议
+}
+
+// 锚点类型
+enum AnchorType {
+  ANCHOR_TYPE_UNSPECIFIED = 0;
+  PLATFORM_INITIAL = 1;   // 平台初始锚点
+  USER_CONTENT = 2;       // 用户内容直接成为锚点
+  AI_AGGREGATED = 3;      // AI 聚合生成锚点
+}
+
+// 设备类型
+enum DeviceType {
+  DEVICE_TYPE_UNSPECIFIED = 0;
+  PHONE = 1;
+  TABLET = 2;
+  PC = 3;
+  VEHICLE = 4;
+}
+
+// 内容来源类型
+enum ContentSource {
+  CONTENT_SOURCE_UNSPECIFIED = 0;
+  ANCHOR = 1;       // 锚点内容
+  OPINION = 2;      // 用户观点
+  REPLAY = 3;       // 重现内容
+}
+
+// ============================================================
+// 通用数据结构
+// ============================================================
+
+// 分页请求
+message Pagination {
+  int32 page = 1;        // 页码 (1-based)
+  int32 page_size = 2;   // 每页数量
+  string cursor = 3;     // 游标分页 (替代 page, 用于大数据集)
+}
+
+// 分页响应
+message PaginatedResponse {
+  int32 total_count = 1;
+  string next_cursor = 2;
+  bool has_more = 3;
+}
+
+// 时间范围
+message TimeRange {
+  int64 start_ts = 1;   // Unix timestamp (秒)
+  int64 end_ts = 2;
+}
+
+// 锚点摘要 (列表展示用, 不含完整内容)
+message AnchorSummary {
+  string anchor_id = 1;
+  string title = 2;           // 标题 (锚点首句截断)
+  AnchorType anchor_type = 3;
+  repeated string topics = 4;
+  int32 total_reactions = 5;
+  int64 created_at = 6;
+}
+
+// 完整锚点
+message Anchor {
+  string anchor_id = 1;
+  string text = 2;            // 完整锚点内容
+  AnchorType anchor_type = 3;
+  repeated string topics = 4;
+  string source_attribution = 5;  // 来源标注
+  bytes anchor_vector = 6;        // 768维 float32 向量 (序列化)
+  int32 vector_dimension = 7;     // 向量维度
+  AnchorQuality quality = 8;
+  int64 created_at = 9;
+  int64 updated_at = 10;
+}
+
+// 锚点质量评分
+message AnchorQuality {
+  float completeness = 1;   // 完整性
+  float specificity = 2;    // 具体性
+  float authenticity = 3;   // 真实性
+  float thought_space = 4;  // 引发思考的空间
+  float overall = 5;        // 综合评分
+}
+
+// 用户反应
+message Reaction {
+  string reaction_id = 1;
+  string user_id = 2;         // 内部 token hash (匿名)
+  string anchor_id = 3;
+  ReactionType reaction_type = 4;
+  EmotionWord emotion_word = 5;   // 可选
+  string opinion_text = 6;        // 可选, 观点文字
+  bytes opinion_vector = 7;       // 可选, 观点向量
+  float resonance_value = 8;      // 计算后的共鸣值
+  int64 created_at = 9;
+}
+
+// 反应统计 (群体共鸣预感用)
+message ReactionSummary {
+  string anchor_id = 1;
+  int32 resonance_count = 2;
+  int32 neutral_count = 3;
+  int32 opposition_count = 4;
+  int32 unexperienced_count = 5;
+  int32 harmful_count = 6;
+  int32 total_count = 7;
+  int64 updated_at = 8;
+}
+
+// 匿名身份
+message AnonymousIdentity {
+  string identity_id = 1;
+  string display_name = 2;    // 随机昵称
+  string avatar_seed = 3;     // 头像种子
+  string anchor_id = 4;       // 所属锚点
+  bool is_fixed = 5;          // 是否已固定 (知己)
+  string fixed_name = 6;      // 固定昵称 (知己后)
+  string fixed_avatar_url = 7;
+}
+
+// 关系状态
+message RelationshipState {
+  string user_a_id = 1;
+  string user_b_id = 2;
+  float score_a_to_b = 3;
+  float score_b_to_a = 4;
+  int32 topic_diversity = 5;
+  TrustLevel trust_level = 6;
+  bool is_confidant = 7;
+  int64 first_resonance_at = 8;
+  int64 last_resonance_at = 9;
+}
+
+// 群体记忆数据
+message GroupMemory {
+  string anchor_id = 1;
+  int32 total_reactions = 2;
+  int32 resonance_count = 3;
+  int32 opposition_count = 4;
+  repeated RepresentativeOpinion opinions = 5;
+  TimeTrend time_trend = 6;
+  UserOwnHistory user_own = 7;  // 当前用户的历史 (如有)
+}
+
+message RepresentativeOpinion {
+  string text = 1;              // 截断展示
+  int32 resonance_count = 2;    // 该观点获得的共鸣数
+  int64 created_at = 3;
+}
+
+message TimeTrend {
+  string trend = 1;             // "growing" / "stable" / "declining"
+  float growth_rate = 2;
+  float latest_intensity = 3;
+}
+
+message UserOwnHistory {
+  int32 reaction_count = 1;
+  string last_reaction_type = 2;
+  bool has_opinion = 3;
+}
+
+// 治理决策
+message GovernanceDecision {
+  string decision_id = 1;
+  string content_id = 2;
+  ContentSource content_type = 3;
+  GovernanceLevel level = 4;
+  float harmful_weight = 5;
+  float marker_avg_credit = 6;
+  string reason = 7;
+  repeated string actions = 8;
+  int64 decided_at = 9;
+}
+
+// 设备信息
+message DeviceInfo {
+  DeviceType device_type = 1;
+  string device_fingerprint = 2;  // SHA-256 hash
+  string os_version = 3;
+  string app_version = 4;
+}

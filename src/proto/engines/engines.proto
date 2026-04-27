@@ -1,0 +1,430 @@
+syntax = "proto3";
+
+package standby.engines;
+
+option go_package = "standby/proto/engines";
+option java_package = "com.standby.proto.engines";
+
+import "common/common.proto";
+
+// ============================================================
+// 锚点生成引擎 (Anchor Engine)
+// ============================================================
+
+service AnchorEngine {
+  // 生成锚点 (离线批量调用)
+  rpc GenerateAnchor(GenerateAnchorRequest) returns (GenerateAnchorResponse);
+  
+  // 评估锚点质量
+  rpc EvaluateAnchorQuality(EvaluateAnchorQualityRequest) returns (EvaluateAnchorQualityResponse);
+  
+  // 获取锚点元数据 (供治理引擎调用)
+  rpc GetAnchorMetadata(GetAnchorMetadataRequest) returns (GetAnchorMetadataResponse);
+  
+  // 获取锚点的语义向量
+  rpc GetAnchorVector(GetAnchorVectorRequest) returns (GetAnchorVectorResponse);
+
+  // 列出锚点 (分页)
+  rpc ListAnchors(ListAnchorsRequest) returns (ListAnchorsResponse);
+}
+
+message GenerateAnchorRequest {
+  repeated string source_texts = 1;      // 原始素材文本
+  string source_type = 2;                // "external" / "user_content" / "aggregated"
+  repeated string topic_hints = 3;       // 话题提示
+  repeated standby.common.Reaction user_reactions = 4;  // 用户反应 (聚合模式)
+}
+
+message GenerateAnchorResponse {
+  bool success = 1;
+  standby.common.Anchor anchor = 2;
+  float quality_score = 3;
+  string rejection_reason = 4;   // 如未通过
+}
+
+message EvaluateAnchorQualityRequest {
+  standby.common.Anchor anchor = 1;
+}
+
+message EvaluateAnchorQualityResponse {
+  standby.common.AnchorQuality quality = 1;
+  bool passes_threshold = 2;
+  string feedback = 3;
+}
+
+message GetAnchorMetadataRequest {
+  string anchor_id = 1;
+}
+
+message GetAnchorMetadataResponse {
+  bool found = 1;
+  string anchor_id = 2;
+  repeated string topics = 3;
+  standby.common.AnchorType anchor_type = 4;
+  float quality_score = 5;
+  int64 created_at = 6;
+}
+
+message GetAnchorVectorRequest {
+  string anchor_id = 1;
+}
+
+message GetAnchorVectorResponse {
+  bool found = 1;
+  bytes vector = 2;        // 768维 float32
+  int32 dimension = 3;
+}
+
+message ListAnchorsRequest {
+  int32 page = 1;          // 页码 (从1开始)
+  int32 page_size = 2;     // 每页数量
+  string topic_filter = 3; // 可选话题过滤
+}
+
+message ListAnchorsResponse {
+  repeated AnchorSummary anchors = 1;
+  int32 total_count = 2;
+  bool has_more = 3;
+}
+
+message AnchorSummary {
+  string anchor_id = 1;
+  string text = 2;             // 前100字预览
+  repeated string topics = 3;
+  float quality_score = 4;
+  int32 reaction_count = 5;
+  int64 created_at = 6;
+}
+
+// ============================================================
+// 共鸣机制引擎 (Resonance Engine)
+// ============================================================
+
+service ResonanceEngine {
+  // 处理单条反应事件 (增量计算)
+  rpc ProcessReaction(ProcessReactionRequest) returns (ProcessReactionResponse);
+  
+  // 批量处理 (定时全量校准)
+  rpc ProcessBatch(ProcessBatchRequest) returns (ProcessBatchResponse);
+  
+  // 查询关系分
+  rpc GetRelationshipScore(GetRelationshipScoreRequest) returns (GetRelationshipScoreResponse);
+  
+  // 查询锚点的反应分布 (供治理引擎调用)
+  rpc GetReactionDistribution(GetReactionDistributionRequest) returns (GetReactionDistributionResponse);
+  
+  // 查询用户的共鸣对
+  rpc FindResonancePairs(FindResonancePairsRequest) returns (FindResonancePairsResponse);
+  
+  // 编码文本为向量 (共享服务)
+  rpc EncodeText(EncodeTextRequest) returns (EncodeTextResponse);
+
+  // 列出锚点的反应 (分页)
+  rpc ListReactions(ListReactionsRequest) returns (ListReactionsResponse);
+}
+
+message ProcessReactionRequest {
+  string event_id = 1;
+  string user_id = 2;
+  string anchor_id = 3;
+  standby.common.ReactionType reaction_type = 4;
+  standby.common.EmotionWord emotion_word = 5;
+  string opinion_text = 6;
+  bytes opinion_vector = 7;        // 端侧预编码的向量
+  int64 timestamp = 8;
+}
+
+message ProcessReactionResponse {
+  bool success = 1;
+  string event_id = 2;
+  float resonance_value = 3;           // 计算后的共鸣值
+  float relationship_score = 4;        // 更新后的关系分 (如有)
+  string related_user_id = 5;          // 产生关系的对方用户 (如有)
+  standby.common.TrustLevel new_trust_level = 6;  // 新的信任级别
+  string error = 7;
+  float processing_time_ms = 8;
+}
+
+message ProcessBatchRequest {
+  repeated ProcessReactionRequest reactions = 1;
+  string batch_id = 2;
+}
+
+message ProcessBatchResponse {
+  bool success = 1;
+  string batch_id = 2;
+  int32 total_processed = 3;
+  int32 total_errors = 4;
+  repeated ProcessReactionResponse results = 5;
+}
+
+message GetRelationshipScoreRequest {
+  string user_a_id = 1;
+  string user_b_id = 2;
+}
+
+message GetRelationshipScoreResponse {
+  bool found = 1;
+  float score_a_to_b = 2;
+  float score_b_to_a = 3;
+  int32 topic_diversity = 4;
+  int32 resonance_count = 5;
+}
+
+message GetReactionDistributionRequest {
+  string anchor_id = 1;
+}
+
+message GetReactionDistributionResponse {
+  bool found = 1;
+  standby.common.ReactionSummary distribution = 2;
+  repeated string anomaly_flags = 3;   // 异常标记
+}
+
+message FindResonancePairsRequest {
+  string user_id = 1;
+  string anchor_id = 2;
+  float min_score = 3;    // 最低关系分阈值
+}
+
+message FindResonancePairsResponse {
+  repeated ResonancePair pairs = 1;
+}
+
+message ResonancePair {
+  string other_user_id = 1;
+  float relationship_score = 2;
+  int32 shared_anchors = 3;
+}
+
+message EncodeTextRequest {
+  repeated string texts = 1;
+  string model_preset = 2;   // "cloud" (768d) / "device" (512d)
+}
+
+message EncodeTextResponse {
+  repeated bytes vectors = 1;
+  int32 dimension = 2;
+  float processing_time_ms = 3;
+}
+
+message ListReactionsRequest {
+  string anchor_id = 1;        // 必填: 查询哪个锚点的反应
+  string filter_type = 2;      // 可选: "共鸣"/"无感"/etc
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message ListReactionsResponse {
+  repeated ReactionItem reactions = 1;
+  int32 total_count = 2;
+  bool has_more = 3;
+}
+
+message ReactionItem {
+  string reaction_id = 1;
+  string user_id = 2;
+  standby.common.ReactionType reaction_type = 3;
+  standby.common.EmotionWord emotion_word = 4;
+  string opinion_text = 5;
+  float resonance_value = 6;
+  int64 created_at = 7;
+}
+
+// ============================================================
+// 内容治理引擎 (Governance Engine)
+// ============================================================
+
+service GovernanceEngine {
+  // 评估内容
+  rpc EvaluateContent(EvaluateContentRequest) returns (EvaluateContentResponse);
+  
+  // 检查标记者可信度
+  rpc CheckMarkCredibility(CheckMarkCredibilityRequest) returns (CheckMarkCredibilityResponse);
+  
+  // 检测异常模式
+  rpc DetectAnomaly(DetectAnomalyRequest) returns (DetectAnomalyResponse);
+  
+  // 更新标记者信用 (异步批量)
+  rpc UpdateMarkerCredit(UpdateMarkerCreditRequest) returns (UpdateMarkerCreditResponse);
+}
+
+message EvaluateContentRequest {
+  string content_id = 1;
+  standby.common.ContentSource content_type = 2;
+  string text = 3;
+  bytes vector = 4;                    // 内容的语义向量
+  standby.common.ReactionSummary reaction_summary = 5;  // 当前反应分布
+  repeated float marker_credits = 6;   // 标记者信用列表
+}
+
+message EvaluateContentResponse {
+  bool evaluated = 1;
+  standby.common.GovernanceDecision decision = 2;
+}
+
+message CheckMarkCredibilityRequest {
+  string marker_token_hash = 1;
+}
+
+message CheckMarkCredibilityResponse {
+  float credit_score = 1;
+  int32 total_marks = 2;
+  float accuracy_rate = 3;
+  bool is_suspicious = 4;     // 标记量异常或准确率过低
+}
+
+message DetectAnomalyRequest {
+  string anchor_id = 1;
+  repeated float mark_timestamps = 2;      // 标记时间序列
+  repeated string marker_ids = 3;          // 标记者 ID 序列
+  map<string, int32> reactions_by_type = 4; // 按类型统计
+}
+
+message DetectAnomalyResponse {
+  bool anomaly_detected = 1;
+  repeated AnomalyReport anomalies = 2;
+}
+
+message AnomalyReport {
+  string anomaly_type = 1;     // "coordinated_attack" / "velocity" / "type_targeting" / ...
+  string description = 2;
+  float severity = 3;          // 0-1
+  repeated string actions = 4; // 建议动作
+}
+
+message UpdateMarkerCreditRequest {
+  repeated MarkerCreditUpdate updates = 1;
+}
+
+message MarkerCreditUpdate {
+  string marker_token_hash = 1;
+  bool was_accurate = 2;
+  int64 timestamp = 3;
+}
+
+message UpdateMarkerCreditResponse {
+  bool success = 1;
+  int32 updated_count = 2;
+}
+
+// ============================================================
+// 用户管理引擎 (User Engine)
+// ============================================================
+
+service UserEngine {
+  // 查询标记者信用 (供治理引擎调用)
+  rpc GetMarkerCredit(GetMarkerCreditRequest) returns (GetMarkerCreditResponse);
+  
+  // 查询标记者历史
+  rpc GetMarkerHistory(GetMarkerHistoryRequest) returns (GetMarkerHistoryResponse);
+  
+  // 更新信任级别
+  rpc UpdateTrustLevel(UpdateTrustLevelRequest) returns (UpdateTrustLevelResponse);
+  
+  // 生成匿名身份
+  rpc GenerateAnonymousIdentity(GenerateAnonymousIdentityRequest) returns (GenerateAnonymousIdentityResponse);
+  
+  // 检查知己资格
+  rpc CheckConfidantEligibility(CheckConfidantEligibilityRequest) returns (CheckConfidantEligibilityResponse);
+}
+
+message GetMarkerCreditRequest {
+  string marker_token_hash = 1;
+  int64 current_timestamp = 2;   // 用于时间衰减计算
+}
+
+message GetMarkerCreditResponse {
+  float credit_score = 1;
+  int32 total_marks = 2;
+  float time_decayed_credit = 3;  // 时间衰减后的信用
+}
+
+message GetMarkerHistoryRequest {
+  string marker_token_hash = 1;
+  int32 limit = 2;
+}
+
+message GetMarkerHistoryResponse {
+  repeated MarkerHistoryEntry entries = 1;
+}
+
+message MarkerHistoryEntry {
+  string content_id = 1;
+  standby.common.ReactionType mark_type = 2;
+  bool was_accurate = 3;
+  int64 timestamp = 4;
+}
+
+message UpdateTrustLevelRequest {
+  string user_a_id = 1;
+  string user_b_id = 2;
+  float new_score_a_to_b = 3;
+  float new_score_b_to_a = 4;
+  int32 topic_diversity = 5;
+  int64 current_timestamp = 6;
+}
+
+message UpdateTrustLevelResponse {
+  bool updated = 1;
+  standby.common.TrustLevel old_level = 2;
+  standby.common.TrustLevel new_level = 3;
+  bool confidant_eligible = 4;
+}
+
+message GenerateAnonymousIdentityRequest {
+  string internal_token_hash = 1;
+  string anchor_id = 2;
+}
+
+message GenerateAnonymousIdentityResponse {
+  standby.common.AnonymousIdentity identity = 1;
+}
+
+message CheckConfidantEligibilityRequest {
+  string user_a_id = 1;
+  string user_b_id = 2;
+  int64 current_timestamp = 3;
+}
+
+message CheckConfidantEligibilityResponse {
+  bool eligible = 1;
+  bool score_met = 2;
+  bool time_met = 3;
+  int32 days_since_first = 4;
+}
+
+// ============================================================
+// 情境感知引擎 (Context Engine) — 端侧为主
+// ============================================================
+
+service ContextEngine {
+  // 提交情境状态 (端侧 → 云端)
+  rpc SubmitContextState(ContextStateRequest) returns (ContextStateResponse);
+  
+  // 获取情境化锚点筛选权重
+  rpc GetContextualWeights(ContextualWeightsRequest) returns (ContextualWeightsResponse);
+}
+
+message ContextStateRequest {
+  string user_id = 1;
+  string scene_type = 2;
+  string mood_hint = 3;
+  string attention_level = 4;
+  standby.common.DeviceType active_device = 5;
+  int64 timestamp = 6;
+}
+
+message ContextStateResponse {
+  bool accepted = 1;
+}
+
+message ContextualWeightsRequest {
+  string user_id = 1;
+  repeated string candidate_topics = 2;
+}
+
+message ContextualWeightsResponse {
+  map<string, float> topic_weights = 1;   // topic → 权重
+  string recommended_scene = 2;
+}

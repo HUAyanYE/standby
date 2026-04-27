@@ -1,0 +1,227 @@
+syntax = "proto3";
+
+package standby.events;
+
+option go_package = "standby/proto/events";
+option java_package = "com.standby.proto.events";
+
+import "common/common.proto";
+
+// ============================================================
+// NATS 异步事件定义
+// ============================================================
+//
+// Topic 命名规范: {domain}.{event_type}
+// 示例: anchor.generated, reaction.submitted
+//
+// 消费模式: 事件驱动, 非请求-响应
+// 持久化: JetStream (关键事件) / 纯 Pub/Sub (非关键事件)
+// ============================================================
+
+// ============================================================
+// 锚点事件
+// ============================================================
+
+// 锚点生成完成 → 通知共鸣引擎、治理引擎
+// Topic: anchor.generated
+// Stream: anchor_events (JetStream, 保留 7 天)
+message AnchorGeneratedEvent {
+  string event_id = 1;
+  string anchor_id = 2;
+  standby.common.AnchorType anchor_type = 3;
+  repeated string topics = 4;
+  float quality_score = 5;
+  int64 created_at = 6;
+}
+
+// 锚点更新 (内容修正、话题标签变更)
+// Topic: anchor.updated
+message AnchorUpdatedEvent {
+  string event_id = 1;
+  string anchor_id = 2;
+  repeated string updated_fields = 3;  // "topics" / "text" / "quality"
+  int64 updated_at = 4;
+}
+
+// 锚点被重现展示
+// Topic: anchor.replayed
+message AnchorReplayedEvent {
+  string event_id = 1;
+  string anchor_id = 2;
+  string user_id = 3;
+  string trigger_type = 4;   // "seasonal" / "anniversary" / ...
+  int64 replayed_at = 5;
+}
+
+// ============================================================
+// 反应事件
+// ============================================================
+
+// 用户提交反应 → 进入共鸣计算队列
+// Topic: reaction.submitted
+// Stream: reaction_events (JetStream, 保留 30 天)
+message ReactionSubmittedEvent {
+  string event_id = 1;
+  string user_id = 2;
+  string anchor_id = 3;
+  standby.common.ReactionType reaction_type = 4;
+  standby.common.EmotionWord emotion_word = 5;
+  string opinion_text = 6;           // 可选
+  bytes opinion_vector = 7;          // 可选, 端侧预编码
+  int64 created_at = 8;
+}
+
+// 反应处理完成 (共鸣值已计算)
+// Topic: reaction.processed
+message ReactionProcessedEvent {
+  string event_id = 1;
+  string original_event_id = 2;    // 对应的 ReactionSubmittedEvent
+  string user_id = 3;
+  string anchor_id = 4;
+  float resonance_value = 5;
+  float relationship_score = 6;    // 更新后的关系分 (如有)
+  string related_user_id = 7;      // 关系对方 (如有)
+  standby.common.TrustLevel new_trust_level = 8;
+  int64 processed_at = 9;
+}
+
+// ============================================================
+// 共鸣事件
+// ============================================================
+
+// 关系分更新
+// Topic: resonance.updated
+// Stream: resonance_events (JetStream, 保留 90 天)
+message ResonanceUpdatedEvent {
+  string event_id = 1;
+  string user_a_id = 2;
+  string user_b_id = 3;
+  string anchor_id = 4;
+  float old_score_a_to_b = 5;
+  float new_score_a_to_b = 6;
+  float old_score_b_to_a = 7;
+  float new_score_b_to_a = 8;
+  repeated string topics = 9;
+  int64 updated_at = 10;
+}
+
+// 信任级别变更
+// Topic: resonance.trust_changed
+message TrustLevelChangedEvent {
+  string event_id = 1;
+  string user_a_id = 2;
+  string user_b_id = 3;
+  standby.common.TrustLevel old_level = 4;
+  standby.common.TrustLevel new_level = 5;
+  bool confidant_eligible = 6;     // 是否达到知己条件
+  int64 changed_at = 7;
+}
+
+// 新的共鸣痕迹被发现
+// Topic: resonance.trace_found
+message TraceFoundEvent {
+  string event_id = 1;
+  string observer_user_id = 2;     // 发现痕迹的用户
+  string traced_user_hash = 3;     // 被追踪用户的 hash
+  string anchor_id = 4;
+  float relationship_score = 5;
+  int64 found_at = 6;
+}
+
+// ============================================================
+// 治理事件
+// ============================================================
+
+// 治理决策
+// Topic: governance.decision
+// Stream: governance_events (JetStream, 保留 180 天)
+message GovernanceDecisionEvent {
+  string event_id = 1;
+  standby.common.GovernanceDecision decision = 2;
+  int64 decided_at = 3;
+}
+
+// 内容被标记 (有害/未体验)
+// Topic: governance.marked
+message ContentMarkedEvent {
+  string event_id = 1;
+  string content_id = 2;
+  standby.common.ContentSource content_type = 3;
+  string marker_token_hash = 4;
+  standby.common.ReactionType mark_type = 5;
+  string reason = 6;
+  int64 marked_at = 7;
+}
+
+// 异常检测触发
+// Topic: governance.anomaly
+message AnomalyDetectedEvent {
+  string event_id = 1;
+  string anchor_id = 2;
+  string anomaly_type = 3;    // "coordinated_attack" / "velocity" / ...
+  string description = 4;
+  float severity = 5;
+  repeated string recommended_actions = 6;
+  int64 detected_at = 7;
+}
+
+// 标记者信用更新
+// Topic: governance.credit_updated
+message MarkerCreditUpdatedEvent {
+  string event_id = 1;
+  string marker_token_hash = 2;
+  float old_credit = 3;
+  float new_credit = 4;
+  bool was_accurate = 5;
+  int64 updated_at = 6;
+}
+
+// ============================================================
+// 用户事件
+// ============================================================
+
+// 知己关系建立
+// Topic: user.confidant_established
+message ConfidantEstablishedEvent {
+  string event_id = 1;
+  string user_a_id = 2;
+  string user_b_id = 3;
+  int64 established_at = 4;
+}
+
+// 用户活跃状态变更
+// Topic: user.activity_changed
+message UserActivityChangedEvent {
+  string event_id = 1;
+  string user_id = 2;
+  bool is_active = 3;       // true=活跃, false=转为不活跃
+  standby.common.DeviceType last_device = 4;
+  int64 changed_at = 5;
+}
+
+// ============================================================
+// 情境事件
+// ============================================================
+
+// 情境状态变更
+// Topic: context.state_changed
+// 非 JetStream, 纯 Pub/Sub (高频低延迟)
+message ContextStateChangedEvent {
+  string event_id = 1;
+  string user_id = 2;
+  string scene_type = 3;
+  string mood_hint = 4;
+  string attention_level = 5;
+  standby.common.DeviceType active_device = 6;
+  int64 timestamp = 7;
+}
+
+// 情境触发的锚点推荐
+// Topic: context.anchor_hint
+message ContextualAnchorHintEvent {
+  string event_id = 1;
+  string user_id = 2;
+  string recommended_scene = 3;
+  repeated string topic_hints = 4;
+  int64 generated_at = 5;
+}

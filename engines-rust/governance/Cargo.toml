@@ -1,0 +1,9 @@
+[package]
+name = "standby-governance"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+standby-shared = { path = "../shared" }
+serde.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,228 @@
+# Standby AI Engines 配置 v0.2
+
+# ============================================================
+# 共鸣机制引擎
+# ============================================================
+resonance_engine:
+  # 服务配置
+  host: "0.0.0.0"
+  port: 8091
+  max_workers: 10
+  log_level: "INFO"
+  
+  # 算法版本: v1 / v2
+  algorithm_version: "v2"
+  
+  # 编码器
+  encoder:
+    cloud_model: BAAI/bge-base-zh-v1.5      # 云端编码器 (768维)
+    device_model: BAAI/bge-small-zh-v1.5     # 端侧编码器 (512维)
+    dimension: 768
+  
+  # 共鸣值参数 (v2)
+  resonance_weight: 1.0
+  opposition_weight: -0.2
+  depth_weight:
+    no_text: 0.6
+    short: 0.9          # < 50字
+    medium: 1.0         # 50-200字
+    long: 1.05          # > 200字 (v2 降低上限)
+  relevance_threshold: 0.3
+  relevance_sharpness: 15.0    # v2: sigmoid 锐度
+  novelty_floor: 0.1
+  novelty_k_neighbors: 5       # v2: k-NN 参数
+  novelty_density_factor: 0.05 # v2: 密度衰减因子
+  emotion_word_bonus:
+    empathy: 1.0       # 同感
+    trigger: 1.1       # 触发
+    insight: 1.1       # 启发
+    shock: 1.2         # 震撼 (v2 新增)
+  topic_decay:
+    alpha: 0.3
+  diversity_bonus:
+    beta: 0.15
+    method: "shannon_entropy"  # v2: 计数 → 熵
+  trust_level:
+    l2_score: 1.0
+    l3_score: 3.0
+    l4_score: 5.0
+    l3_stability_days: 14
+    activity_window_days: 90
+  trace_threshold: 1.5
+  
+  # 时间加权 (v2)
+  time_weight:
+    enabled: true
+    half_life_days: 180
+
+# ============================================================
+# 锚点生成引擎
+# ============================================================
+anchor_engine:
+  # 服务配置
+  host: "0.0.0.0"
+  port: 8090
+  max_workers: 10
+  log_level: "INFO"
+  
+  # 算法配置
+  clusterer: bertopic
+  generator: llm
+  evaluator: llm
+  bertopic:
+    min_cluster_size: 5
+    min_samples: 3
+    embedding_model: BAAI/bge-base-zh-v1.5
+  quality_threshold: 0.7
+  llm_input_max_opinions: 20
+  daily_generation_target: 20
+  
+  # 重现配置 (v2)
+  replay:
+    min_interval_hours: 72.0
+    scoring_method: "weighted_sum"  # v2: 乘积 → 加权和
+    weights:
+      decay: 0.25
+      season: 0.20
+      affinity: 0.20
+      memory: 0.15
+      trigger: 0.20
+
+# ============================================================
+# 内容治理引擎
+# ============================================================
+governance_engine:
+  # 服务配置
+  host: "0.0.0.0"
+  port: 8092
+  max_workers: 10
+  log_level: "INFO"
+  
+  # 阈值 (v2: 动态阈值)
+  harmful_threshold:
+    base: 0.15
+    observation: 0.15
+    demotion: 0.25
+    dynamic: true           # v2: 启用动态阈值
+  unexperienced_threshold: 0.25
+  conflict_threshold:
+    harmful: 0.15
+    resonance: 0.3
+  min_sample_count: 10
+  
+  # 标记者信用 (v2: Bayesian)
+  marker_credit:
+    method: "bayesian"      # v2: 频率统计 → Bayesian Beta
+    prior_alpha: 2.0
+    prior_beta: 2.0
+    time_decay: true        # v2: 启用时间衰减
+    decay_half_life_days: 90
+  
+  # 异常检测 (v2)
+  anomaly_detection:
+    coordinated_marking:
+      enabled: true
+      time_window_seconds: 300
+      threshold: 10
+    velocity:
+      enabled: true         # v2 新增
+      window_seconds: 60
+      max_reactions: 10
+    type_targeting:
+      enabled: true         # v2 新增 (v1 未实现)
+      unexperienced_threshold: 0.4
+  
+  # LLM 调用控制
+  llm_call_ratio_target: 0.05
+
+# ============================================================
+# 用户管理引擎
+# ============================================================
+user_engine:
+  # 服务配置
+  host: "0.0.0.0"
+  port: 8093
+  max_workers: 10
+  log_level: "INFO"
+  
+  # 匿名身份
+  anonymous_identity:
+    name_pool_size: 10000
+    avatar_seed_range: 999999
+  
+  # 知己连接
+  connection:
+    min_score: 3.0
+    min_stability_days: 30
+
+# ============================================================
+# 情境感知引擎
+# ============================================================
+context_engine:
+  # 服务配置
+  host: "0.0.0.0"
+  port: 8094
+  max_workers: 5
+  log_level: "INFO"
+  
+  # 设备上报间隔
+  device_report_interval:
+    active_seconds: 30
+    standby_seconds: 300
+  
+  # 时间常数
+  time_constant:
+    phone: 120
+    tablet: 300
+    pc: 600
+  report_expiry_multiplier: 3
+  geohash_precision: 4
+  rhythm_window_days: 30
+  fusion_confidence_threshold: 0.6
+  standby_weight: 0.5
+  battery_threshold: 0.15
+
+# ============================================================
+# 通信配置
+# ============================================================
+communication:
+  # gRPC (引擎间同步)
+  grpc:
+    max_message_size_mb: 50
+    keepalive_time_seconds: 30
+    keepalive_timeout_seconds: 5
+  
+  # NATS (引擎间异步)
+  nats:
+    url: "nats://localhost:4222"
+    jetstream: true
+    reconnect_wait_seconds: 5
+    max_reconnects: -1    # 无限重连
+
+# ============================================================
+# 共享配置
+# ============================================================
+shared:
+  # 编码器模型路径
+  models_dir: "shared/models"
+  
+  # 向量维度
+  vector_dimension: 768
+  
+  # 数据库 (引擎通过安全层访问)
+  databases:
+    postgresql:
+      host: "localhost"
+      port: 5432
+      database: "standby"
+      user: "standby"
+      password: "standby_dev_password"
+    mongodb:
+      host: "localhost"
+      port: 27017
+      database: "standby"
+      user: "standby"
+      password: "standby_dev_password"
+    dragonfly:
+      host: "localhost"
+      port: 6379
