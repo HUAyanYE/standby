@@ -1,125 +1,142 @@
-// ============================================================
-// Standby API 网关 — main.rs
-// ============================================================
-//
-// 架构:
-//   客户端 (Flutter/Rust) → [TLS] → API 网关 → [gRPC] → 引擎
-//
-// 请求处理链:
-//   1. TLS 终端
-//   2. 设备指纹验证
-//   3. JWT 认证
-//   4. 请求签名验证
-//   5. 速率限制
-//   6. 路由到引擎
-// ============================================================
+//! Standby API Gateway
+//!
+//! REST-to-gRPC 代理，提供:
+//! - JWT + 设备指纹认证
+//! - 速率限制
+//! - 请求日志
+//! - 引擎代理转发
 
-mod auth;
 mod config;
+mod db;
+mod engine_clients;
 mod error;
-mod handlers;
 mod middleware;
+mod models;
 mod proto;
-mod state;
+mod routes;
 
 use std::sync::Arc;
 
-use axum::{
-    middleware as axum_mw,
-    routing::{get, post},
-    Router,
-};
+use axum::http::header;
+use axum::middleware::from_fn_with_state;
+use axum::Router;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::EnvFilter;
 
-use crate::{
-    config::GatewayConfig,
-    middleware::{auth_mw, device_mw, rate_limit_mw},
-    state::AppState,
-};
+use config::GatewayConfig;
+use engine_clients::EngineClients;
+use middleware::{device_auth, jwt, rate_limit, request_log};
+
+/// 应用状态 — 注入到所有 handler
+#[derive(Clone)]
+pub struct AppState {
+    pub config: Arc<GatewayConfig>,
+    pub engines: EngineClients,
+    pub db: sqlx::PgPool,
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // 加载配置
+    let config = GatewayConfig::from_env()?;
+
     // 初始化日志
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "standby_gateway=info,tower_http=info".into()),
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new(&config.log_level)),
         )
-        .with(tracing_subscriber::fmt::layer())
+        .json()
         .init();
 
-    tracing::info!("Standby API 网关启动中...");
+    tracing::info!("启动 Standby API Gateway");
+    tracing::info!("端口: {}", config.port);
 
-    // 加载配置
-    let config = GatewayConfig::load()?;
-    tracing::info!("配置加载完成: port={}", config.port);
+    // 连接引擎
+    let engines = EngineClients::new(
+        &config.engine_anchor_url,
+        &config.engine_resonance_url,
+        &config.engine_governance_url,
+        &config.engine_context_url,
+    )
+    .await?;
 
-    // 创建应用状态
-    let state = Arc::new(AppState::new(config.clone()).await?);
+    tracing::info!("引擎连接已建立");
+
+    // 连接数据库
+    let db_pool = db::create_pool(&config).await?;
+
+    // 速率限制器
+    let rate_limiter = Arc::new(rate_limit::RateLimiter::new(config.rate_limit_per_minute));
+
+    // 应用状态
+    let state = AppState {
+        config: Arc::new(config.clone()),
+        engines,
+        db: db_pool,
+    };
+
+    // CORS
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(vec![
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            "x-device-id".parse().unwrap(),
+            "x-device-signature".parse().unwrap(),
+            "x-request-timestamp".parse().unwrap(),
+        ]);
 
     // 构建路由
-    let app = build_router(state);
+    let app = Router::new()
+        // 健康检查 (无中间件)
+        .route("/health", axum::routing::get(routes::health::health_check))
+        // 认证路由 (无 JWT，有设备认证)
+        .route("/api/v1/auth/register", axum::routing::post(routes::auth::register))
+        .route("/api/v1/auth/login", axum::routing::post(routes::auth::login))
+        .route("/api/v1/auth/refresh", axum::routing::post(routes::auth::refresh))
+        // 锚点路由
+        .route("/api/v1/anchors", axum::routing::get(routes::anchors::list_anchors))
+        .route("/api/v1/anchors", axum::routing::post(routes::anchors::create_anchor))
+        .route("/api/v1/anchors/{id}", axum::routing::get(routes::anchors::get_anchor))
+        .route("/api/v1/anchors/{id}/memory", axum::routing::get(routes::anchors::get_group_memory))
+        .route("/api/v1/anchors/{id}/chain", axum::routing::get(routes::anchors::get_feeling_chain))
+        // 反应路由
+        .route("/api/v1/reactions", axum::routing::get(routes::reactions::list_reactions))
+        .route("/api/v1/reactions", axum::routing::post(routes::reactions::create_reaction))
+        .route("/api/v1/reactions/batch", axum::routing::post(routes::reactions::create_batch))
+        .route("/api/v1/reactions/distribution/{anchor_id}", axum::routing::get(routes::reactions::get_distribution))
+        // 关系路由
+        .route("/api/v1/relationships/score", axum::routing::get(routes::reactions::get_relationship_score))
+        .route("/api/v1/relationships/{user_id}", axum::routing::get(routes::reactions::find_resonance_pairs))
+        // 治理路由
+        .route("/api/v1/governance/evaluate", axum::routing::post(routes::governance::evaluate_content))
+        .route("/api/v1/governance/anomaly", axum::routing::post(routes::governance::detect_anomaly))
+        .route("/api/v1/governance/credibility/{marker_hash}", axum::routing::get(routes::governance::check_credibility))
+        // 情境路由
+        .route("/api/v1/context", axum::routing::post(routes::context::submit_context))
+        .route("/api/v1/context/weights", axum::routing::get(routes::context::get_weights))
+        // 编码路由
+        .route("/api/v1/encode", axum::routing::post(routes::reactions::encode_text))
+        // 中间件 (从外到内)
+        .layer(from_fn_with_state(state.clone(), request_log::request_log))
+        .layer(cors)
+        .layer(TraceLayer::new_for_http())
+        // JWT 验证
+        .layer(from_fn_with_state(state.clone(), jwt::jwt_auth))
+        // 设备认证
+        .layer(from_fn_with_state(state.clone(), device_auth::device_auth))
+        // 速率限制
+        .layer(from_fn_with_state(rate_limiter, rate_limit::rate_limit))
+        .with_state(state);
 
     // 启动服务
-    let addr = format!("0.0.0.0:{}", config.port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!("API 网关监听在 {}", addr);
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.port)).await?;
+    tracing::info!("Gateway 监听在 0.0.0.0:{}", config.port);
 
     axum::serve(listener, app).await?;
 
     Ok(())
-}
-
-/// 构建路由
-fn build_router(state: Arc<AppState>) -> Router {
-    // 公开路由 (无需认证)
-    let public_routes = Router::new()
-        .route("/health", get(handlers::health))
-        .route("/auth/device", post(handlers::auth::device_auth))
-        .route("/auth/refresh", post(handlers::auth::refresh_token));
-
-    // 需要认证的路由
-    let authenticated_routes = Router::new()
-        // 锚点
-        .route("/anchors", get(handlers::anchor::list_anchors))
-        .route("/anchors/replay", get(handlers::anchor::get_replay_anchors))
-        .route("/anchors/import", post(handlers::anchor::import_anchor))
-        .route("/anchors/:id", get(handlers::anchor::get_anchor))
-        .route("/anchors/:id/summary", get(handlers::anchor::get_reaction_summary))
-        // 反应
-        .route("/reactions", post(handlers::reaction::submit_reaction))
-        .route("/anchors/:id/reactions", get(handlers::reaction::list_reactions))
-        .route("/traces", get(handlers::reaction::get_resonance_traces))
-        // 用户
-        .route("/me", get(handlers::user::get_profile))
-        .route("/relationships", get(handlers::user::list_relationships))
-        .route("/confidants/intent", post(handlers::user::express_confidant_intent))
-        .route("/confidants", get(handlers::user::list_confidants))
-        // 情境
-        .route("/context", post(handlers::context::submit_context_state))
-        .route("/context/hint", get(handlers::context::get_contextual_hint))
-        // 治理
-        .route("/report", post(handlers::governance::report_content))
-        .route("/content/:id/status", get(handlers::governance::get_content_status))
-        .route("/appeal", post(handlers::governance::appeal_decision))
-        // 中间件链: 设备指纹 → JWT 认证 → 速率限制
-        .layer(axum_mw::from_fn_with_state(
-            state.clone(),
-            device_mw::verify_device,
-        ))
-        .layer(axum_mw::from_fn_with_state(
-            state.clone(),
-            auth_mw::verify_jwt,
-        ))
-        .layer(axum_mw::from_fn_with_state(
-            state.clone(),
-            rate_limit_mw::check_rate_limit,
-        ));
-
-    Router::new()
-        .merge(public_routes)
-        .merge(authenticated_routes)
-        .layer(TraceLayer::new_for_http())
-        .with_state(state)
 }

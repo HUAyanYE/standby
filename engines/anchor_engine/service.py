@@ -8,8 +8,7 @@
 4. 锚点重现调度
 
 数据层:
-- PostgreSQL: anchor_vectors (向量 + 元数据)
-- MongoDB: 锚点生成日志
+- PostgreSQL: anchor_vectors (向量 + 元数据), 锚点生成日志
 """
 
 import logging
@@ -31,6 +30,9 @@ from shared.engine_base import (
 from shared.db import get_pg, put_pg
 from shared.pg_compat import get_anchor_meta, get_anchor_meta_batch, save_anchor_meta, count_reactions_batch
 
+# NATS 事件
+from shared.nats_client import NATSClient, EventBuilder
+
 # gRPC 生成代码
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "proto" / "generated" / "python"))
 from engines import engines_pb2_grpc
@@ -51,6 +53,11 @@ class AnchorEngineServicer(EngineServicer):
 
         # 内存缓存 (从 PG 加载)
         self._anchors_cache: dict[str, dict] = {}
+
+        # NATS 事件客户端
+        import os
+        nats_url = os.environ.get("NATS_URL", "nats://localhost:4222")
+        self._nats = NATSClient(nats_url=nats_url, engine_name="anchor_engine")
 
     def _load_anchor(self, anchor_id: str) -> dict | None:
         """从 PG 加载锚点"""
@@ -92,7 +99,7 @@ class AnchorEngineServicer(EngineServicer):
     def _save_anchor(self, anchor_id: str, text: str, topics: list,
                      embedding: np.ndarray, quality_score: float,
                      anchor_type: str = "platform_initial"):
-        """保存锚点到 PG + Mongo"""
+        """保存锚点到 PostgreSQL"""
         try:
             # PG: 向量
             pg = get_pg()
@@ -117,6 +124,35 @@ class AnchorEngineServicer(EngineServicer):
             }
         except Exception as e:
             logger.error(f"保存锚点失败: {e}")
+
+    def _publish_event_async(self, event):
+        """非阻塞发布 NATS 事件 (使用持久化事件循环)"""
+        import asyncio
+        import threading
+
+        if not hasattr(self, '_nats_loop'):
+            self._nats_loop = asyncio.new_event_loop()
+            self._nats_thread = threading.Thread(
+                target=self._run_nats_loop, daemon=True
+            )
+            self._nats_thread.start()
+
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self._nats.publish(event), self._nats_loop
+            )
+            future.add_done_callback(
+                lambda f: logger.warning(f"NATS 发布失败: {f.exception()}")
+                if f.exception() else None
+            )
+        except Exception as e:
+            logger.warning(f"NATS 事件发布调度失败: {e}")
+
+    def _run_nats_loop(self):
+        """NATS 事件循环后台线程"""
+        import asyncio
+        asyncio.set_event_loop(self._nats_loop)
+        self._nats_loop.run_forever()
 
     def register_services(self, server):
         engines_pb2_grpc.add_AnchorEngineServicer_to_server(self, server)
@@ -170,6 +206,7 @@ class AnchorEngineServicer(EngineServicer):
             topics=result.get("topics", []),
             quality_score=result.get("quality_score", 0),
             created_at=result.get("created_at", 0),
+            text=result.get("text", ""),
         )
 
     def GetAnchorVector(self, request, context):
@@ -183,7 +220,7 @@ class AnchorEngineServicer(EngineServicer):
         )
 
     def ListAnchors(self, request, context):
-        """列出锚点 (分页查询 PG + Mongo)"""
+        """列出锚点 (分页查询 PostgreSQL)"""
         page = max(1, request.page)
         page_size = min(50, max(1, request.page_size)) if request.page_size > 0 else 20
         offset = (page - 1) * page_size
@@ -198,12 +235,10 @@ class AnchorEngineServicer(EngineServicer):
                 cur.execute("SELECT anchor_id, created_at FROM anchor_vectors ORDER BY created_at DESC")
                 all_rows = cur.fetchall()
                 put_pg(pg)
-                mongo = get_mongo()
 
                 # 批量获取所有元数据
                 all_ids = [row[0] for row in all_rows]
-                meta_list = list(mongo.anchor_metadata.find({"anchor_id": {"$in": all_ids}}))
-                meta_map = {m["anchor_id"]: m for m in meta_list}
+                meta_map = get_anchor_meta_batch(all_ids)
 
                 filtered = []
                 for row in all_rows:
@@ -223,24 +258,12 @@ class AnchorEngineServicer(EngineServicer):
                 """, (page_size, offset))
                 page_rows = [(r[0], r[1], None) for r in cur.fetchall()]
 
-            mongo = get_mongo()
-
             # 批量获取元数据和反应数 (替代 N+1 逐个查询)
             anchor_ids = [row[0] for row in page_rows]
-            meta_list = list(mongo.anchor_metadata.find({"anchor_id": {"$in": anchor_ids}}))
-            meta_map = {m["anchor_id"]: m for m in meta_list}
+            meta_map = get_anchor_meta_batch(anchor_ids)
 
-            # 批量获取反应数 (aggregation pipeline)
-            reaction_counts = {}
-            try:
-                pipeline = [
-                    {"$match": {"anchor_id": {"$in": anchor_ids}}},
-                    {"$group": {"_id": "$anchor_id", "count": {"$sum": 1}}}
-                ]
-                for r in mongo.reactions.aggregate(pipeline):
-                    reaction_counts[r["_id"]] = r["count"]
-            except Exception:
-                pass  # 如果聚合失败，reaction_count 默认为 0
+            # 批量获取反应数
+            reaction_counts = count_reactions_batch(anchor_ids)
 
             anchors = []
             for row in page_rows:
@@ -285,7 +308,10 @@ class AnchorEngineServicer(EngineServicer):
 
     @timing_decorator
     def evaluate_anchor_quality(self, request) -> dict:
-        """评估锚点质量 (规则版)"""
+        """评估锚点质量 (规则版)
+
+        新增：有形事物检测 — 心物必须指向具体的事物/场景/经历
+        """
         text = request.text if hasattr(request, 'text') else request.get("text", "")
 
         length = len(text)
@@ -300,14 +326,19 @@ class AnchorEngineServicer(EngineServicer):
         thought_markers = ["？", "也许", "是否", "如果", "……", "不知道"]
         thought_space = min(1.0, 0.4 + 0.12 * sum(1 for m in thought_markers if m in text))
 
-        overall = (completeness * 0.3 + specificity * 0.25 +
-                   authenticity * 0.25 + thought_space * 0.2)
+        # 有形事物检测 — 心物必须指向具体的事物/场景/经历
+        tangible_score = self._compute_tangible_score(text)
+
+        overall = (completeness * 0.25 + specificity * 0.25 +
+                   authenticity * 0.2 + thought_space * 0.15 +
+                   tangible_score * 0.15)
 
         quality = {
             "completeness": round(completeness, 3),
             "specificity": round(specificity, 3),
             "authenticity": round(authenticity, 3),
             "thought_space": round(thought_space, 3),
+            "tangible": round(tangible_score, 3),
             "overall": round(overall, 3),
         }
 
@@ -317,9 +348,77 @@ class AnchorEngineServicer(EngineServicer):
             "feedback": f"综合评分 {overall:.2f}" + (" (通过)" if overall >= 0.7 else " (未达阈值 0.7)"),
         }
 
+    def _compute_tangible_score(self, text: str) -> float:
+        """计算有形事物分数
+
+        心物（Seedstone）必须指向具体的事物/场景/经历，而非抽象概念。
+
+        检测维度：
+        1. 具体名词（物体、地点、人物）
+        2. 感官描述（视觉、听觉、触觉、嗅觉、味觉）
+        3. 时间/空间标记
+        4. 抽象概念惩罚
+        """
+        if not text:
+            return 0.0
+
+        score = 0.5  # 基础分
+
+        # 1. 具体名词
+        concrete_nouns = [
+            # 物体
+            '地铁', '公交', '火车', '飞机', '船', '车', '自行车',
+            '手机', '电脑', '书', '信', '照片', '音乐', '电影',
+            '咖啡', '茶', '酒', '烟', '食物', '衣服', '鞋子',
+            # 地点
+            '家', '学校', '公司', '公园', '医院', '车站', '机场',
+            '图书馆', '咖啡馆', '餐厅', '酒吧', '电影院', '商场',
+            '海边', '山上', '河边', '湖边', '森林', '沙漠',
+            # 人物
+            '父亲', '母亲', '爷爷', '奶奶', '外公', '外婆',
+            '老师', '朋友', '同学', '同事', '恋人', '妻子', '丈夫',
+        ]
+        concrete_count = sum(1 for noun in concrete_nouns if noun in text)
+        score += min(0.3, concrete_count * 0.1)
+
+        # 2. 感官描述
+        sensory_words = [
+            # 视觉
+            '看到', '看着', '望着', '盯着', '看着', '明亮', '黑暗', '红色', '蓝色',
+            # 听觉
+            '听到', '听着', '声音', '音乐', '噪音', '安静', '喧闹',
+            # 触觉
+            '触摸', '温暖', '冰冷', '柔软', '坚硬', '湿润', '干燥',
+            # 嗅觉
+            '闻到', '香味', '臭味', '清新', '刺鼻',
+            # 味觉
+            '尝到', '甜', '苦', '酸', '辣', '咸',
+        ]
+        sensory_count = sum(1 for word in sensory_words if word in text)
+        score += min(0.2, sensory_count * 0.05)
+
+        # 3. 时间/空间标记
+        time_space_markers = [
+            '年', '月', '日', '时', '分', '早上', '中午', '下午', '晚上',
+            '凌晨', '深夜', '傍晚', '黄昏', '黎明',
+            '这里', '那里', '上面', '下面', '旁边', '对面', '里面', '外面',
+        ]
+        marker_count = sum(1 for marker in time_space_markers if marker in text)
+        score += min(0.2, marker_count * 0.05)
+
+        # 4. 抽象概念惩罚
+        abstract_words = [
+            '人生', '命运', '哲学', '意义', '价值', '本质', '真理',
+            '自由', '平等', '正义', '道德', '伦理', '信仰', '灵魂',
+        ]
+        abstract_count = sum(1 for word in abstract_words if word in text)
+        score -= min(0.2, abstract_count * 0.05)
+
+        return max(0.0, min(1.0, score))
+
     @timing_decorator
     def get_anchor_metadata(self, request) -> dict:
-        """获取锚点元数据 (从 PG/Mongo)"""
+        """获取锚点元数据 (从 PostgreSQL)"""
         anchor_id = request.anchor_id if hasattr(request, 'anchor_id') else request
 
         anchor = self._load_anchor(anchor_id)
@@ -353,12 +452,23 @@ class AnchorEngineServicer(EngineServicer):
 
     def register_anchor(self, anchor_id: str, text: str, topics: list,
                         anchor_type: str = "platform_initial") -> dict:
-        """注册新锚点 (写入 PG + Mongo)"""
+        """注册新锚点 (写入 PostgreSQL)"""
         embedding = self.encoder.encode_single(text)
         quality = self.evaluate_anchor_quality(type('R', (), {'text': text})())
         quality_score = quality["quality"]["overall"]
 
         self._save_anchor(anchor_id, text, topics, embedding, quality_score, anchor_type)
+
+        # 发布 NATS 事件
+        self._publish_event_async(
+            EventBuilder.anchor_created(
+                anchor_id=anchor_id,
+                anchor_type=anchor_type,
+                topics=topics,
+                quality_score=quality_score,
+                text=text,
+            )
+        )
 
         logger.info(f"注册锚点: {anchor_id} (质量={quality_score:.2f})")
 
@@ -399,12 +509,13 @@ class AnchorEngineServicer(EngineServicer):
             put_pg(pg)
 
             # 获取元数据
-            mongo = get_mongo()
+            anchor_ids = [row[0] for row in rows]
+            meta_map = get_anchor_meta_batch(anchor_ids)
             candidates = []
             for row in rows:
                 aid = row[0]
                 created_ts = int(row[1].timestamp()) if row[1] else 0
-                meta = mongo.anchor_metadata.find_one({"anchor_id": aid})
+                meta = meta_map.get(aid)
                 if not meta:
                     continue
 
@@ -428,10 +539,343 @@ class AnchorEngineServicer(EngineServicer):
             logger.error(f"获取重现锚点失败: {e}")
             return {"anchors": []}
 
+    @timing_decorator
+    def auto_identify_seedstone(self, text: str, topics: list[str]) -> dict:
+        """自动识别心物（Seedstone）
+
+        心物是用户表达的载体，系统自动识别用户内容是否可以成为心物。
+
+        识别条件：
+        1. 指向具体的事物/场景/经历（有形性）
+        2. 包含情感表达（情感性）
+        3. 有足够长度（完整性）
+        4. 有话题标签（可聚合性）
+
+        返回：
+        - is_seedstone: 是否可以成为心物
+        - confidence: 置信度 0-1
+        - reason: 识别原因
+        """
+        if not text or len(text.strip()) < 10:
+            return {
+                "is_seedstone": False,
+                "confidence": 0.0,
+                "reason": "文本太短",
+            }
+
+        # 1. 有形性检测
+        tangible_score = self._compute_tangible_score(text)
+
+        # 2. 情感性检测
+        emotion_words = ['感动', '触动', '感慨', '难过', '开心', '激动', '怀念', '思念',
+                        '温暖', '心酸', '欣慰', '释然', '顿悟', '觉醒', '震撼', '崩溃',
+                        '泪流满面', '无法呼吸', '心碎', '绝望', '狂喜', '热泪盈眶']
+        has_emotion = any(word in text for word in emotion_words)
+
+        # 3. 完整性检测
+        is_complete = len(text) >= 20
+
+        # 4. 可聚合性检测
+        has_topics = len(topics) > 0
+
+        # 计算置信度
+        confidence = 0.0
+        reasons = []
+
+        if tangible_score >= 0.6:
+            confidence += 0.4
+            reasons.append("指向具体事物")
+        elif tangible_score >= 0.4:
+            confidence += 0.2
+            reasons.append("有一定具体性")
+
+        if has_emotion:
+            confidence += 0.3
+            reasons.append("包含情感表达")
+
+        if is_complete:
+            confidence += 0.2
+            reasons.append("内容完整")
+
+        if has_topics:
+            confidence += 0.1
+            reasons.append("有话题标签")
+
+        is_seedstone = confidence >= 0.5
+
+        return {
+            "is_seedstone": is_seedstone,
+            "confidence": round(confidence, 3),
+            "reason": "、".join(reasons) if reasons else "不满足心物条件",
+            "tangible_score": round(tangible_score, 3),
+            "has_emotion": has_emotion,
+        }
+
+    @timing_decorator
+    def aggregate_opinions_to_seedstone(
+        self,
+        anchor_id: str,
+        opinions: list[dict],
+        min_opinions: int = 3,
+        similarity_threshold: float = 0.7,
+    ) -> dict:
+        """将同主题观点聚合为新心物
+
+        当多个用户对同一锚点表达了相似的感受时，系统可以将这些观点
+        聚合为一个新的心物，形成"感受链"。
+
+        聚合条件：
+        1. 至少有 min_opinions 个观点
+        2. 观点之间的语义相似度 >= similarity_threshold
+        3. 观点都指向同一主题
+
+        返回：
+        - can_aggregate: 是否可以聚合
+        - aggregated_text: 聚合后的心物文本
+        - source_opinions: 来源观点列表
+        - similarity_score: 平均相似度
+        """
+        if len(opinions) < min_opinions:
+            return {
+                "can_aggregate": False,
+                "reason": f"观点数量不足（需要至少 {min_opinions} 个）",
+            }
+
+        # 提取观点文本
+        opinion_texts = [op.get("text", "") for op in opinions if op.get("text")]
+        if len(opinion_texts) < min_opinions:
+            return {
+                "can_aggregate": False,
+                "reason": "有效观点数量不足",
+            }
+
+        # 编码观点
+        try:
+            embeddings = self.encoder.encode(opinion_texts)
+        except Exception as e:
+            logger.error(f"编码观点失败: {e}")
+            return {
+                "can_aggregate": False,
+                "reason": "编码失败",
+            }
+
+        # 计算观点之间的平均相似度
+        n = len(embeddings)
+        similarity_sum = 0.0
+        count = 0
+        for i in range(n):
+            for j in range(i + 1, n):
+                sim = float(np.dot(embeddings[i], embeddings[j]))
+                similarity_sum += sim
+                count += 1
+
+        avg_similarity = similarity_sum / count if count > 0 else 0.0
+
+        if avg_similarity < similarity_threshold:
+            return {
+                "can_aggregate": False,
+                "reason": f"观点相似度不足（{avg_similarity:.2f} < {similarity_threshold}）",
+                "avg_similarity": round(avg_similarity, 3),
+            }
+
+        # 找到最具有代表性的观点（与其他观点平均相似度最高的）
+        representative_idx = 0
+        best_avg_sim = 0.0
+        for i in range(n):
+            sims = []
+            for j in range(n):
+                if i != j:
+                    sims.append(float(np.dot(embeddings[i], embeddings[j])))
+            avg_sim = sum(sims) / len(sims) if sims else 0.0
+            if avg_sim > best_avg_sim:
+                best_avg_sim = avg_sim
+                representative_idx = i
+
+        representative_text = opinion_texts[representative_idx]
+
+        # 构建聚合文本
+        aggregated_text = f"关于这个话题，大家的感受相似：\n\n{representative_text}"
+
+        return {
+            "can_aggregate": True,
+            "aggregated_text": aggregated_text,
+            "source_opinions": opinion_texts,
+            "representative_opinion": representative_text,
+            "similarity_score": round(avg_similarity, 3),
+            "opinion_count": len(opinion_texts),
+        }
+
+
+    def GetGroupMemory(self, request, context):
+        """获取群体记忆 (重现时展示)
+
+        根据 docs/3 技术架构设计，返回:
+        - user_opinion_text: 用户当时的感想
+        - resonance_count_at_time: 当时的共鸣人数
+        - emotion_words: 当时的情绪词列表
+        - group_evolution: 群体对话题理解的演变摘要
+        """
+        anchor_id = request.anchor_id
+        user_id = request.user_id
+
+        try:
+            from shared.db import get_pg, put_pg
+            pg = get_pg()
+            cur = pg.cursor()
+
+            # 1. 获取用户的感想
+            cur.execute("""
+                SELECT text_content FROM reactions
+                WHERE anchor_id = %s AND user_id = %s
+                ORDER BY created_at DESC LIMIT 1
+            """, (anchor_id, user_id))
+            user_row = cur.fetchone()
+            user_opinion_text = user_row[0] if user_row and user_row[0] else ""
+
+            # 2. 统计共鸣数量
+            cur.execute("""
+                SELECT COUNT(*) FROM reactions
+                WHERE anchor_id = %s AND reaction_type = '共鸣'
+            """, (anchor_id,))
+            resonance_count = cur.fetchone()[0] or 0
+
+            # 3. 获取情绪词
+            cur.execute("""
+                SELECT DISTINCT emotion_word FROM reactions
+                WHERE anchor_id = %s AND emotion_word IS NOT NULL AND emotion_word != ''
+            """, (anchor_id,))
+            emotion_words = [row[0] for row in cur.fetchall() if row[0]]
+
+            # 4. 群体演化摘要: 查询不同时间段的反应分布
+            cur.execute("""
+                SELECT
+                    reaction_type,
+                    COUNT(*) as cnt,
+                    MIN(created_at) as first_at,
+                    MAX(created_at) as last_at
+                FROM reactions
+                WHERE anchor_id = %s
+                GROUP BY reaction_type
+                ORDER BY cnt DESC
+            """, (anchor_id,))
+            type_rows = cur.fetchall()
+
+            put_pg(pg)
+
+            # 构建演化摘要
+            total = sum(r[1] for r in type_rows) if type_rows else 0
+            if total > 0:
+                parts = []
+                for row in type_rows:
+                    parts.append(f"{row[0]}: {row[1]}人")
+                group_evolution = f"共 {total} 条反应，分布: " + "、".join(parts)
+            else:
+                group_evolution = "暂无群体反应数据"
+
+            return engines_pb2.GetGroupMemoryResponse(
+                user_opinion_text=user_opinion_text,
+                resonance_count_at_time=resonance_count,
+                emotion_words=emotion_words,
+                group_evolution=group_evolution,
+            )
+        except Exception as e:
+            logger.error(f"获取群体记忆失败: {e}")
+            return engines_pb2.GetGroupMemoryResponse(
+                user_opinion_text="",
+                resonance_count_at_time=0,
+                emotion_words=[],
+                group_evolution="获取失败",
+            )
+
+    def GetFeelingChain(self, request, context):
+        """获取感受链 (树状结构)
+        
+        返回心物的完整感受链，使用扁平化的节点列表表示树结构。
+        客户端可根据 parent_reaction_id 重建树状结构。
+        """
+        anchor_id = request.anchor_id
+        max_depth = request.max_depth if request.max_depth > 0 else 3
+
+        try:
+            from shared.db import get_pg, put_pg
+            pg = get_pg()
+            cur = pg.cursor()
+
+            # 使用递归 CTE 查询感受链
+            cur.execute("""
+                WITH RECURSIVE chain AS (
+                    -- 根节点：直接关联到心物的反应
+                    SELECT id, user_id, text_content, emotion_word, 
+                           parent_reaction_id, depth, created_at
+                    FROM reactions
+                    WHERE anchor_id = %s AND parent_reaction_id IS NULL
+                    
+                    UNION ALL
+                    
+                    -- 递归：子反应 (限制深度)
+                    SELECT r.id, r.user_id, r.text_content, r.emotion_word,
+                           r.parent_reaction_id, r.depth, r.created_at
+                    FROM reactions r
+                    JOIN chain c ON r.parent_reaction_id = c.id
+                    WHERE r.depth <= %s
+                )
+                SELECT id, user_id, text_content, emotion_word, 
+                       parent_reaction_id, depth, created_at
+                FROM chain
+                ORDER BY depth, created_at
+            """, (anchor_id, max_depth))
+            
+            rows = cur.fetchall()
+            put_pg(pg)
+
+            # 构建节点列表
+            nodes = []
+            for row in rows:
+                # 获取用户的匿名身份
+                display_name = "匿名用户"
+                avatar_seed = "default"
+                
+                nodes.append(engines_pb2.FeelingChainNode(
+                    reaction_id=str(row[0]),
+                    user_id=row[1] or "",
+                    display_name=display_name,
+                    avatar_seed=avatar_seed,
+                    text_content=row[2] or "",
+                    emotion_word=row[3] or "",
+                    parent_reaction_id=str(row[4]) if row[4] else "",
+                    depth=row[5] or 0,
+                    created_at=int(row[6].timestamp()) if row[6] else 0,
+                ))
+
+            return engines_pb2.GetFeelingChainResponse(
+                found=len(nodes) > 0,
+                anchor_id=anchor_id,
+                nodes=nodes,
+            )
+        except Exception as e:
+            logger.error(f"获取感受链失败: {e}")
+            return engines_pb2.GetFeelingChainResponse(
+                found=False,
+                anchor_id=anchor_id,
+                nodes=[],
+            )
+
 
 def main():
     config = EngineConfig.from_yaml("anchor_engine")
     servicer = AnchorEngineServicer(config)
+
+    # 初始化 NATS 连接
+    import asyncio
+    try:
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(servicer._nats.connect())
+        loop.close()
+        logger.info("NATS 连接初始化完成")
+    except Exception as e:
+        logger.warning(f"NATS 连接失败，降级到 mock 模式: {e}")
+        servicer._nats.use_mock = True
+
     servicer.run()
 
 

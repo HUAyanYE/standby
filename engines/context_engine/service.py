@@ -1,15 +1,20 @@
 """
-情境感知引擎 — gRPC 服务实现 (最小版)
+情境感知引擎 — gRPC 服务实现
 
 职责:
 1. 接收端侧提交的情境状态
 2. 基于情境提供话题权重建议
+3. PostgreSQL 持久化 (user_contexts 表)
+4. NATS 事件发布/订阅
 
 一期实现: 简单规则引擎，后续升级为模型驱动。
 """
 
+import asyncio
 import logging
+import os
 import sys
+import threading
 import time
 from pathlib import Path
 from datetime import datetime
@@ -17,6 +22,8 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from shared.engine_base import EngineConfig, EngineServicer, timing_decorator
+from shared.db import get_pg, put_pg
+from shared.pg_compat import save_user_context, load_all_user_contexts
 
 # gRPC 生成代码
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "proto" / "generated" / "python"))
@@ -24,20 +31,96 @@ from engines import engines_pb2_grpc
 from engines import engines_pb2
 from common import common_pb2
 
+# NATS 事件
+from shared.nats_client import NATSClient, EventBuilder
+
 logger = logging.getLogger(__name__)
 
 
 class ContextEngineServicer(EngineServicer):
-    """情境感知引擎 gRPC 服务"""
+    """情境感知引擎 gRPC 服务 — PostgreSQL + NATS"""
 
     def __init__(self, config: EngineConfig):
         super().__init__(config)
-        # 用户最新情境缓存
+
+        # 用户最新情境缓存 (启动时从 PG 加载)
         self._user_contexts: dict[str, dict] = {}
+        self._load_contexts_from_db()
+
+        # NATS 事件客户端
+        nats_url = os.environ.get("NATS_URL", "nats://localhost:4222")
+        self._nats = NATSClient(nats_url=nats_url, engine_name="context_engine")
+
+    def _load_contexts_from_db(self):
+        """从 PostgreSQL 加载所有用户情境状态"""
+        try:
+            self._user_contexts = load_all_user_contexts()
+            logger.info(f"从 PG 加载了 {len(self._user_contexts)} 条用户情境")
+        except Exception as e:
+            logger.warning(f"加载用户情境失败 (首次启动可能表不存在): {e}")
 
     def register_services(self, server):
         engines_pb2_grpc.add_ContextEngineServicer_to_server(self, server)
         logger.info("ContextEngine service 已注册")
+
+    # --------------------------------------------------------
+    # NATS 事件发布
+    # --------------------------------------------------------
+
+    def _publish_event_async(self, event):
+        """非阻塞发布 NATS 事件 (使用持久化事件循环)"""
+        if not hasattr(self, '_nats_loop'):
+            self._nats_loop = asyncio.new_event_loop()
+            self._nats_thread = threading.Thread(
+                target=self._run_nats_loop, daemon=True
+            )
+            self._nats_thread.start()
+
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self._nats.publish(event), self._nats_loop
+            )
+            future.add_done_callback(
+                lambda f: logger.warning(f"NATS 发布失败: {f.exception()}")
+                if f.exception() else None
+            )
+        except Exception as e:
+            logger.warning(f"NATS 事件发布调度失败: {e}")
+
+    def _run_nats_loop(self):
+        """NATS 事件循环后台线程"""
+        asyncio.set_event_loop(self._nats_loop)
+        self._nats_loop.run_forever()
+
+    async def _on_context_update(self, event):
+        """处理外部 context.update 事件 (NATS 订阅)"""
+        try:
+            user_id = event.payload.get("user_id", "")
+            scene_type = event.payload.get("scene_type", "")
+            mood_hint = event.payload.get("mood_hint", "")
+            if user_id and user_id not in self._user_contexts:
+                logger.info(f"收到外部情境更新: user={user_id[:8]}, scene={scene_type}")
+        except Exception as e:
+            logger.error(f"处理 context.update 事件失败: {e}")
+
+    def _setup_nats_subscriptions(self):
+        """设置 NATS 订阅 (在事件循环中运行)"""
+        try:
+            # Ensure event loop exists before subscribing
+            if not hasattr(self, '_nats_loop'):
+                self._nats_loop = asyncio.new_event_loop()
+                self._nats_thread = threading.Thread(
+                    target=self._run_nats_loop, daemon=True
+                )
+                self._nats_thread.start()
+
+            asyncio.run_coroutine_threadsafe(
+                self._nats.subscribe("context.update", self._on_context_update),
+                self._nats_loop,
+            )
+            logger.info("已订阅 context.update 事件")
+        except Exception as e:
+            logger.warning(f"设置 NATS 订阅失败: {e}")
 
     # --------------------------------------------------------
     # gRPC PascalCase 别名
@@ -70,6 +153,22 @@ class ContextEngineServicer(EngineServicer):
             "timestamp": request.timestamp if hasattr(request, 'timestamp') else int(time.time()),
         }
         self._user_contexts[user_id] = state
+
+        # 持久化到 PostgreSQL
+        try:
+            save_user_context(user_id, state)
+        except Exception as e:
+            logger.warning(f"持久化情境状态失败: {e}")
+
+        # 发布 NATS 事件
+        self._publish_event_async(
+            EventBuilder.context_update(
+                user_id=user_id,
+                scene_type=state["scene_type"],
+                mood_hint=state["mood_hint"],
+            )
+        )
+
         logger.info(f"情境更新: user={user_id[:8]}, scene={state['scene_type']}, mood={state['mood_hint']}")
         return {"accepted": True}
 
@@ -133,6 +232,19 @@ class ContextEngineServicer(EngineServicer):
 def main():
     config = EngineConfig.from_yaml("context_engine")
     servicer = ContextEngineServicer(config)
+
+    # 初始化 NATS 连接
+    try:
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(servicer._nats.connect())
+        loop.close()
+        logger.info("NATS 连接初始化完成")
+
+        # 设置 NATS 订阅
+        servicer._setup_nats_subscriptions()
+    except Exception as e:
+        logger.warning(f"NATS 连接失败，降级到 mock 模式: {e}")
+        servicer._nats.use_mock = True
 
     # 本地测试
     print("=" * 60)

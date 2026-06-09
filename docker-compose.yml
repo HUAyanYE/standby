@@ -1,11 +1,10 @@
 # ============================================================
 # Standby 后端服务 — Docker Compose
 # ============================================================
-# 架构: PostgreSQL一体化 + Qdrant向量 + Redis缓存 + NATS事件
+# 架构: PostgreSQL + pgvector + Dragonfly + NATS + MinIO
 # 无MongoDB — 所有数据存储在PostgreSQL
 # ============================================================
 
-version: "3.9"
 
 services:
   # ============================================================
@@ -24,26 +23,9 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./db/init-db.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U standby"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # Qdrant (向量数据库)
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: standby-qdrant
-    ports:
-      - "6333:6333"   # REST API
-      - "6334:6334"   # gRPC API
-    volumes:
-      - qdrant_data:/qdrant/storage
-    environment:
-      QDRANT__CLUSTER__ENABLED: "false"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -116,6 +98,8 @@ services:
       NATS_URL: nats://nats:4222
       DB_POSTGRES: postgres://standby:standby_dev_password@postgres:5432/standby
       LOG_LEVEL: INFO
+      USE_RUST_RESONANCE: "true"
+      RUST_RESONANCE_URL: http://resonance-rust:8095
     depends_on:
       postgres:
         condition: service_healthy
@@ -169,27 +153,6 @@ services:
       nats:
         condition: service_healthy
 
-  # 用户管理引擎
-  user-engine:
-    build:
-      context: .
-      dockerfile: engines/Dockerfile.python
-      args:
-        ENGINE_NAME: user_engine
-    image: standby-user:latest
-    container_name: standby-user
-    ports:
-      - "8093:8093"
-    environment:
-      NATS_URL: nats://nats:4222
-      DB_POSTGRES: postgres://standby:standby_dev_password@postgres:5432/standby
-      LOG_LEVEL: INFO
-    depends_on:
-      postgres:
-        condition: service_healthy
-      nats:
-        condition: service_healthy
-
   # 情境感知引擎
   context-engine:
     build:
@@ -203,13 +166,38 @@ services:
       - "8094:8094"
     environment:
       NATS_URL: nats://nats:4222
+      DB_POSTGRES: postgres://standby:standby_dev_password@postgres:5432/standby
       LOG_LEVEL: INFO
     depends_on:
+      postgres:
+        condition: service_healthy
       nats:
         condition: service_healthy
 
   # ============================================================
-  # 网关层 (Rust)
+  # Rust 高性能计算服务
+  # ============================================================
+
+  # 共鸣计算服务 (SIMD + 并行优化)
+  resonance-rust:
+    build:
+      context: .
+      dockerfile: src/engines-rust/resonance-service/Dockerfile
+    image: standby-resonance-rust:latest
+    container_name: standby-resonance-rust
+    ports:
+      - "8095:8095"
+    environment:
+      PORT: 8095
+      RUST_LOG: info
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8095/compute"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ============================================================
+  # 网关层 (Rust/Axum)
   # ============================================================
 
   api-gateway:
@@ -223,20 +211,23 @@ services:
     environment:
       GATEWAY_PORT: 8080
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
-      ENGINE_RESONANCE: http://resonance-engine:8091
-      ENGINE_ANCHOR: http://anchor-engine:8090
-      ENGINE_GOVERNANCE: http://governance-engine:8092
-      ENGINE_USER: http://user-engine:8093
-      ENGINE_CONTEXT: http://context-engine:8094
-      NATS_URL: nats://nats:4222
+      DATABASE_URL: postgres://standby:standby_dev_password@postgres:5432/standby
+      ENGINE_ANCHOR_URL: http://anchor-engine:8090
+      ENGINE_RESONANCE_URL: http://resonance-engine:8091
+      ENGINE_GOVERNANCE_URL: http://governance-engine:8092
+      ENGINE_CONTEXT_URL: http://context-engine:8094
+      RATE_LIMIT_PER_MINUTE: "60"
+      LOG_LEVEL: info
     depends_on:
-      resonance-engine:
-        condition: service_started
+      postgres:
+        condition: service_healthy
       anchor-engine:
+        condition: service_started
+      resonance-engine:
         condition: service_started
       governance-engine:
         condition: service_started
-      user-engine:
+      context-engine:
         condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
@@ -246,6 +237,5 @@ services:
 
 volumes:
   pgdata:
-  qdrant_data:
   natsdata:
   minio_data:

@@ -1,0 +1,364 @@
+// ============================================================
+// Standby — 引擎 gRPC 服务定义
+// ============================================================
+// 4 个引擎: anchor / resonance / governance / context
+// 已移除 user_engine (匿名身份由 API 网关处理)
+
+syntax = "proto3";
+package standby.engines;
+
+option java_package = "com.standby.engines";
+option go_package = "standby/proto/engines";
+
+import "common.proto";
+
+// ============================================================
+// 锚点生成引擎 (AnchorEngine)
+// ============================================================
+
+service AnchorEngine {
+    // 生成锚点
+    rpc GenerateAnchor(GenerateAnchorRequest) returns (GenerateAnchorResponse);
+    // 评估锚点质量
+    rpc EvaluateAnchorQuality(EvaluateAnchorQualityRequest) returns (EvaluateAnchorQualityResponse);
+    // 获取锚点元数据
+    rpc GetAnchorMetadata(GetAnchorMetadataRequest) returns (GetAnchorMetadataResponse);
+    // 获取锚点向量
+    rpc GetAnchorVector(GetAnchorVectorRequest) returns (GetAnchorVectorResponse);
+    // 列出锚点 (分页)
+    rpc ListAnchors(ListAnchorsRequest) returns (ListAnchorsResponse);
+    // 获取群体记忆 (重现时展示)
+    rpc GetGroupMemory(GetGroupMemoryRequest) returns (GetGroupMemoryResponse);
+    // 获取感受链 (树状结构)
+    rpc GetFeelingChain(GetFeelingChainRequest) returns (GetFeelingChainResponse);
+}
+
+message GenerateAnchorRequest {
+    repeated string source_texts = 1;
+    repeated string topic_hints = 2;
+    string source = 3;          // user / platform_initial
+    string modality = 4;        // text / image / video
+}
+
+message GenerateAnchorResponse {
+    bool success = 1;
+    string anchor_id = 2;
+    string rejection_reason = 3;
+    common.Anchor anchor = 4;
+    float quality_score = 5;
+}
+
+message EvaluateAnchorQualityRequest {
+    string text = 1;
+}
+
+message EvaluateAnchorQualityResponse {
+    common.AnchorQuality quality = 1;
+    bool passes_threshold = 2;
+    string feedback = 3;
+}
+
+message GetAnchorMetadataRequest {
+    string anchor_id = 1;
+}
+
+message GetAnchorMetadataResponse {
+    bool found = 1;
+    string anchor_id = 2;
+    repeated string topics = 3;
+    float quality_score = 4;
+    int64 created_at = 5;
+    string text = 6;
+}
+
+message GetAnchorVectorRequest {
+    string anchor_id = 1;
+}
+
+message GetAnchorVectorResponse {
+    bool found = 1;
+    bytes vector = 2;
+    int32 dimension = 3;
+}
+
+message ListAnchorsRequest {
+    int32 page = 1;
+    int32 page_size = 2;
+    string topic_filter = 3;
+}
+
+message ListAnchorsResponse {
+    repeated common.AnchorSummary anchors = 1;
+    int32 total_count = 2;
+    bool has_more = 3;
+}
+
+message GetGroupMemoryRequest {
+    string anchor_id = 1;
+    string user_id = 2;
+}
+
+message GetGroupMemoryResponse {
+    string user_opinion_text = 1;
+    int32 resonance_count_at_time = 2;
+    repeated string emotion_words = 3;
+    string group_evolution = 4;
+}
+
+message GetFeelingChainRequest {
+    string anchor_id = 1;
+    int32 max_depth = 2;
+}
+
+message FeelingChainNode {
+    string reaction_id = 1;
+    string user_id = 2;
+    string display_name = 3;
+    string avatar_seed = 4;
+    string text_content = 5;
+    string emotion_word = 6;
+    string parent_reaction_id = 7;
+    int32 depth = 8;
+    int64 created_at = 9;
+}
+
+message GetFeelingChainResponse {
+    bool found = 1;
+    string anchor_id = 2;
+    repeated FeelingChainNode nodes = 3;
+}
+
+// ============================================================
+// 共鸣机制引擎 (ResonanceEngine)
+// ============================================================
+
+service ResonanceEngine {
+    // 处理单条反应事件
+    rpc ProcessReaction(ProcessReactionRequest) returns (ProcessReactionResponse);
+    // 批量处理反应
+    rpc ProcessBatch(ProcessBatchRequest) returns (ProcessBatchResponse);
+    // 查询关系分
+    rpc GetRelationshipScore(GetRelationshipScoreRequest) returns (GetRelationshipScoreResponse);
+    // 查询反应分布
+    rpc GetReactionDistribution(GetReactionDistributionRequest) returns (GetReactionDistributionResponse);
+    // 查找共鸣对
+    rpc FindResonancePairs(FindResonancePairsRequest) returns (FindResonancePairsResponse);
+    // 文本编码为向量
+    rpc EncodeText(EncodeTextRequest) returns (EncodeTextResponse);
+    // 列出反应 (分页)
+    rpc ListReactions(ListReactionsRequest) returns (ListReactionsResponse);
+}
+
+message ProcessReactionRequest {
+    string anchor_id = 1;
+    string user_id = 2;
+    common.ReactionType reaction_type = 3;
+    string opinion_text = 4;
+    bytes opinion_vector = 5;           // 端侧预编码的向量 (可选)
+    common.EmotionWord emotion_word = 6;
+    int64 timestamp = 7;
+    string event_id = 8;
+    string parent_reaction_id = 9;      // 感受链: 父反应 ID
+}
+
+message ProcessReactionResponse {
+    bool success = 1;
+    string event_id = 2;
+    float resonance_value = 3;
+    float relationship_score = 4;
+    string related_user_id = 5;
+    string error = 6;
+    float processing_time_ms = 7;
+}
+
+message ProcessBatchRequest {
+    string batch_id = 1;
+    repeated ProcessReactionRequest reactions = 2;
+}
+
+message ProcessBatchResponse {
+    bool success = 1;
+    string batch_id = 2;
+    int32 total_processed = 3;
+    int32 total_errors = 4;
+}
+
+message GetRelationshipScoreRequest {
+    string user_a_id = 1;
+    string user_b_id = 2;
+}
+
+message GetRelationshipScoreResponse {
+    bool found = 1;
+    float score_a_to_b = 2;
+    float score_b_to_a = 3;
+    int32 topic_diversity = 4;
+    int32 resonance_count = 5;
+}
+
+message GetReactionDistributionRequest {
+    string anchor_id = 1;
+}
+
+message GetReactionDistributionResponse {
+    bool found = 1;
+    common.ReactionSummary distribution = 2;
+}
+
+message ResonancePair {
+    string other_user_id = 1;
+    float relationship_score = 2;
+    int32 shared_anchors = 3;
+}
+
+message FindResonancePairsRequest {
+    string user_id = 1;
+}
+
+message FindResonancePairsResponse {
+    repeated ResonancePair pairs = 1;
+}
+
+message EncodeTextRequest {
+    repeated string texts = 1;
+}
+
+message EncodeTextResponse {
+    repeated bytes vectors = 1;
+    int32 dimension = 2;
+}
+
+message ReactionItem {
+    string reaction_id = 1;
+    string user_id = 2;
+    int32 reaction_type = 3;
+    int32 emotion_word = 4;
+    string opinion_text = 5;
+    float resonance_value = 6;
+    int64 created_at = 7;
+}
+
+message ListReactionsRequest {
+    string anchor_id = 1;
+    int32 page = 2;
+    int32 page_size = 3;
+    string filter_type = 4;         // "共鸣" / "无感" 等
+}
+
+message ListReactionsResponse {
+    repeated ReactionItem reactions = 1;
+    int32 total_count = 2;
+    bool has_more = 3;
+}
+
+// ============================================================
+// 内容治理引擎 (GovernanceEngine)
+// ============================================================
+
+service GovernanceEngine {
+    // 评估内容治理级别
+    rpc EvaluateContent(EvaluateContentRequest) returns (EvaluateContentResponse);
+    // 检查标记者可信度
+    rpc CheckMarkCredibility(CheckMarkCredibilityRequest) returns (CheckMarkCredibilityResponse);
+    // 检测异常模式
+    rpc DetectAnomaly(DetectAnomalyRequest) returns (DetectAnomalyResponse);
+    // 批量更新标记者信用
+    rpc UpdateMarkerCredit(UpdateMarkerCreditRequest) returns (UpdateMarkerCreditResponse);
+}
+
+message EvaluateContentRequest {
+    string content_id = 1;
+    string content_type = 2;            // anchor / opinion
+    common.ReactionSummary reaction_summary = 3;
+    repeated MarkerCreditInfo marker_credits = 4;
+}
+
+message MarkerCreditInfo {
+    string marker_token_hash = 1;
+    float credit_score = 2;
+    int32 total_marks = 3;
+}
+
+message EvaluateContentResponse {
+    bool evaluated = 1;
+    common.GovernanceDecision decision = 2;
+}
+
+message CheckMarkCredibilityRequest {
+    string marker_token_hash = 1;
+}
+
+message CheckMarkCredibilityResponse {
+    float credit_score = 1;
+    int32 total_marks = 2;
+    float accuracy_rate = 3;
+    bool is_suspicious = 4;
+}
+
+message DetectAnomalyRequest {
+    string anchor_id = 1;
+    repeated int64 mark_timestamps = 2;
+    repeated string marker_ids = 3;
+    map<string, int32> reactions_by_type = 4;
+}
+
+message AnomalyReport {
+    string anomaly_type = 1;        // coordinated_attack / velocity / type_targeting
+    string description = 2;
+    float severity = 3;
+    repeated string actions = 4;
+}
+
+message DetectAnomalyResponse {
+    bool anomaly_detected = 1;
+    repeated AnomalyReport anomalies = 2;
+}
+
+message CreditUpdate {
+    string marker_token_hash = 1;
+    bool was_accurate = 2;
+    int64 timestamp = 3;
+}
+
+message UpdateMarkerCreditRequest {
+    repeated CreditUpdate updates = 1;
+}
+
+message UpdateMarkerCreditResponse {
+    bool success = 1;
+    int32 updated_count = 2;
+}
+
+// ============================================================
+// 情境感知引擎 (ContextEngine)
+// ============================================================
+
+service ContextEngine {
+    // 提交端侧情境状态
+    rpc SubmitContextState(SubmitContextStateRequest) returns (ContextStateResponse);
+    // 获取情境化话题权重
+    rpc GetContextualWeights(GetContextualWeightsRequest) returns (ContextualWeightsResponse);
+}
+
+message SubmitContextStateRequest {
+    string user_id = 1;
+    string scene_type = 2;
+    string mood_hint = 3;
+    string attention_level = 4;
+    int32 active_device = 5;
+    int64 timestamp = 6;
+}
+
+message ContextStateResponse {
+    bool accepted = 1;
+}
+
+message GetContextualWeightsRequest {
+    string user_id = 1;
+    repeated string candidate_topics = 2;
+}
+
+message ContextualWeightsResponse {
+    map<string, float> topic_weights = 1;
+    string recommended_scene = 2;       // 深度阅读 / 碎片浏览 / 沉浸阅读 / 轻量浏览
+}

@@ -45,6 +45,14 @@ STREAM_CONFIGS = {
         "subjects": ["governance.>"],
         "retention_days": 180,
     },
+    "user_events": {
+        "subjects": ["user.>"],
+        "retention_days": 90,
+    },
+    "context_events": {
+        "subjects": ["context.>"],
+        "retention_days": 7,
+    },
 }
 
 # Topic → 优先级映射
@@ -61,10 +69,16 @@ TOPIC_PRIORITY = {
     "governance.marked": EventPriority.STANDARD,
     "governance.anomaly": EventPriority.CRITICAL,
     "governance.credit_updated": EventPriority.STANDARD,
+    "governance.alert": EventPriority.CRITICAL,
+    "governance.action": EventPriority.STANDARD,
     "user.confidant_established": EventPriority.CRITICAL,
     "user.activity_changed": EventPriority.TRANSIENT,
+    "user.trust_change": EventPriority.CRITICAL,
     "context.state_changed": EventPriority.TRANSIENT,
     "context.anchor_hint": EventPriority.TRANSIENT,
+    "context.update": EventPriority.TRANSIENT,
+    "anchor.created": EventPriority.STANDARD,
+    "anchor.updated": EventPriority.STANDARD,
 }
 
 
@@ -388,6 +402,128 @@ class EventBuilder:
             },
             source_engine=source_engine,
             priority=EventPriority.CRITICAL,
+        )
+
+    @staticmethod
+    def anchor_created(
+        anchor_id: str,
+        anchor_type: str,
+        topics: list,
+        quality_score: float,
+        text: str = "",
+        source_engine: str = "anchor_engine",
+    ) -> Event:
+        return Event(
+            event_id=str(uuid.uuid4()),
+            topic="anchor.created",
+            payload={
+                "anchor_id": anchor_id,
+                "anchor_type": anchor_type,
+                "topics": topics,
+                "quality_score": quality_score,
+                "text": text[:100] if text else "",
+            },
+            source_engine=source_engine,
+            priority=EventPriority.STANDARD,
+        )
+
+    @staticmethod
+    def anchor_updated(
+        anchor_id: str,
+        updated_fields: list,
+        source_engine: str = "anchor_engine",
+    ) -> Event:
+        return Event(
+            event_id=str(uuid.uuid4()),
+            topic="anchor.updated",
+            payload={
+                "anchor_id": anchor_id,
+                "updated_fields": updated_fields,
+            },
+            source_engine=source_engine,
+            priority=EventPriority.STANDARD,
+        )
+
+    @staticmethod
+    def governance_alert(
+        content_id: str,
+        level: str,
+        reason: str,
+        severity: float = 0.5,
+        source_engine: str = "governance_engine",
+    ) -> Event:
+        return Event(
+            event_id=str(uuid.uuid4()),
+            topic="governance.alert",
+            payload={
+                "content_id": content_id,
+                "level": level,
+                "reason": reason,
+                "severity": severity,
+            },
+            source_engine=source_engine,
+            priority=EventPriority.CRITICAL,
+        )
+
+    @staticmethod
+    def governance_action(
+        content_id: str,
+        actions: list,
+        reason: str = "",
+        source_engine: str = "governance_engine",
+    ) -> Event:
+        return Event(
+            event_id=str(uuid.uuid4()),
+            topic="governance.action",
+            payload={
+                "content_id": content_id,
+                "actions": actions,
+                "reason": reason,
+            },
+            source_engine=source_engine,
+            priority=EventPriority.STANDARD,
+        )
+
+    @staticmethod
+    def user_trust_change(
+        user_a_id: str,
+        user_b_id: str,
+        old_level: str,
+        new_level: str,
+        depth_score: float,
+        source_engine: str = "user_engine",
+    ) -> Event:
+        return Event(
+            event_id=str(uuid.uuid4()),
+            topic="user.trust_change",
+            payload={
+                "user_a_id": user_a_id,
+                "user_b_id": user_b_id,
+                "old_level": old_level,
+                "new_level": new_level,
+                "depth_score": depth_score,
+            },
+            source_engine=source_engine,
+            priority=EventPriority.CRITICAL,
+        )
+
+    @staticmethod
+    def context_update(
+        user_id: str,
+        scene_type: str,
+        mood_hint: str = "",
+        source_engine: str = "context_engine",
+    ) -> Event:
+        return Event(
+            event_id=str(uuid.uuid4()),
+            topic="context.update",
+            payload={
+                "user_id": user_id,
+                "scene_type": scene_type,
+                "mood_hint": mood_hint,
+            },
+            source_engine=source_engine,
+            priority=EventPriority.TRANSIENT,
         )
 
 

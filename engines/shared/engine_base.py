@@ -61,7 +61,6 @@ class EngineConfig:
             "anchor_engine": 8090,
             "resonance_engine": 8091,
             "governance_engine": 8092,
-            "user_engine": 8093,
             "context_engine": 8094,
         }
         return ports.get(engine_name, 8090)

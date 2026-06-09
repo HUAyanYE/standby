@@ -167,47 +167,154 @@ def compute_novelty_v2(
     return novelty
 
 
-# ---- 改进 3: 复合深度信号 ----
+# ---- 改进 3: 复合深度信号（含情感维度）----
+
+# 情感强度关键词（用于检测文本中的情感深度）
+EMOTION_INTENSITY_KEYWORDS = {
+    'high': ['震撼', '崩溃', '泪流满面', '无法呼吸', '心碎', '绝望', '狂喜', '热泪盈眶',
+             '刻骨铭心', '终身难忘', '永生难忘', '改变人生', '颠覆认知'],
+    'medium': ['感动', '触动', '感慨', '难过', '开心', '激动', '怀念', '思念',
+               '温暖', '心酸', '欣慰', '释然', '顿悟', '觉醒'],
+    'low': ['还好', '一般', '普通', '还行', '没什么', '无所谓', '随便'],
+}
+
+# 经历细节关键词（用于检测个人经历的深度）
+EXPERIENCE_DETAIL_KEYWORDS = [
+    '有一次', '记得', '曾经', '那年', '小时候', '第一次', '最后一次',
+    '那天', '当时', '后来', '从此', '从此以后', '直到现在', '至今',
+    '在我', '我在', '我们', '我的', '他的', '她的',
+]
+
+
+def compute_emotion_intensity(text: Optional[str]) -> float:
+    """计算文本中的情感强度
+
+    返回值: 0.0 - 1.0
+    - 0.0-0.3: 低情感强度
+    - 0.3-0.6: 中等情感强度
+    - 0.6-1.0: 高情感强度
+
+    检测维度:
+    1. 情感关键词匹配
+    2. 感叹号/问号密度
+    3. 情感词汇密度
+    """
+    if text is None or len(text.strip()) == 0:
+        return 0.0
+
+    score = 0.0
+    text_lower = text.lower()
+
+    # 1. 情感关键词匹配
+    for keyword in EMOTION_INTENSITY_KEYWORDS['high']:
+        if keyword in text_lower:
+            score += 0.3
+    for keyword in EMOTION_INTENSITY_KEYWORDS['medium']:
+        if keyword in text_lower:
+            score += 0.15
+    for keyword in EMOTION_INTENSITY_KEYWORDS['low']:
+        if keyword in text_lower:
+            score -= 0.1
+
+    # 2. 感叹号/问号密度
+    exclamation_count = text.count('！') + text.count('!')
+    question_count = text.count('？') + text.count('?')
+    punctuation_density = (exclamation_count + question_count) / max(1, len(text))
+    score += min(0.2, punctuation_density * 10)
+
+    # 3. 情感词汇密度（简单启发式：形容词和副词的比例）
+    # 这里用简化方法：检测常见的形容词后缀
+    adj_suffixes = ['的', '地', '得', '了', '着', '过']
+    adj_count = sum(text.count(suffix) for suffix in adj_suffixes)
+    adj_density = adj_count / max(1, len(text))
+    score += min(0.2, adj_density * 5)
+
+    return max(0.0, min(1.0, score))
+
+
+def compute_experience_detail(text: Optional[str]) -> float:
+    """计算文本中的经历细节程度
+
+    返回值: 0.0 - 1.0
+    - 0.0-0.3: 低细节（抽象表达）
+    - 0.3-0.6: 中等细节（有具体描述）
+    - 0.6-1.0: 高细节（有个人经历）
+
+    检测维度:
+    1. 经历细节关键词
+    2. 时间/地点标记
+    3. 人称代词使用
+    """
+    if text is None or len(text.strip()) == 0:
+        return 0.0
+
+    score = 0.0
+    text_lower = text.lower()
+
+    # 1. 经历细节关键词
+    detail_count = sum(1 for keyword in EXPERIENCE_DETAIL_KEYWORDS if keyword in text_lower)
+    score += min(0.5, detail_count * 0.1)
+
+    # 2. 时间/地点标记
+    time_markers = ['年', '月', '日', '时', '分', '秒', '早上', '中午', '下午', '晚上',
+                    '凌晨', '深夜', '傍晚', '黄昏', '黎明']
+    time_count = sum(1 for marker in time_markers if marker in text_lower)
+    score += min(0.3, time_count * 0.1)
+
+    # 3. 人称代词使用（表示个人视角）
+    personal_pronouns = ['我', '你', '他', '她', '我们', '你们', '他们']
+    pronoun_count = sum(text.count(p) for p in personal_pronouns)
+    pronoun_density = pronoun_count / max(1, len(text))
+    score += min(0.2, pronoun_density * 10)
+
+    return max(0.0, min(1.0, score))
+
 
 def compute_depth_v2(
     text: Optional[str],
     opinion_embedding: Optional[np.ndarray] = None,
     anchor_embedding: Optional[np.ndarray] = None,
 ) -> float:
-    """复合深度信号: 字数 × 语义信息量
-    
-    v1 问题: 纯字数分档 (0.6/0.9/1.0/1.1)
-    - 长文但空洞 → 高权重 (不好)
-    - 短小精悍 → 低权重 (不好)
-    
-    v2 方案: 字数权重 × 语义正交性
-    - 语义正交性 = 1 - |cos_sim(opinion, anchor)|
-    - 意义: 如果观点与锚点的语义方向不同, 说明提供了新维度, 更有深度
-    - 但如果观点太偏离锚点 (离题), 正交性高但 relevance 低, 最终会被
-      relevance 过滤掉
+    """复合深度信号: 字数 × 语义信息量 × 情感强度 × 经历细节
+
+    v2 方案: 多维度复合信号
+    - 字数权重: 基础信号
+    - 语义正交性: 提供新视角的程度
+    - 情感强度: 情感表达的深度
+    - 经历细节: 个人经历的具体程度
+
+    公式: depth = base × semantic_factor × emotion_factor × experience_factor
     """
-    # 字数权重 (微调: 短文权重提升, 长文上限降低)
+    # 1. 字数权重
     if text is None or len(text.strip()) == 0:
         base = 0.6
     elif len(text) < 20:
-        base = 0.8   # v1 是 0.9, 但极短观点 (如"对") 权重应更低
+        base = 0.8
     elif len(text) < 50:
         base = 0.9
     elif len(text) <= 200:
         base = 1.0
     else:
-        base = 1.05  # v1 是 1.1, v2 进一步降低, 避免灌水
-    
-    # 语义正交性 (可选, 需要 embedding)
+        base = 1.05
+
+    # 2. 语义正交性
+    semantic_factor = 1.0
     if opinion_embedding is not None and anchor_embedding is not None:
         cos_sim = float(np.dot(opinion_embedding, anchor_embedding))
         orthogonality = 1.0 - abs(cos_sim)
-        # 正交性范围 [0, 1], 但通常 0.2-0.6
-        # 映射到 [0.85, 1.15], 让正交性作为微调而非主导
         semantic_factor = 0.85 + 0.3 * orthogonality
-        return base * semantic_factor
-    
-    return base
+
+    # 3. 情感强度因子
+    emotion_intensity = compute_emotion_intensity(text)
+    # 情感强度映射到 [0.8, 1.3] 的乘数
+    emotion_factor = 0.8 + 0.5 * emotion_intensity
+
+    # 4. 经历细节因子
+    experience_detail = compute_experience_detail(text)
+    # 经历细节映射到 [0.9, 1.2] 的乘数
+    experience_factor = 0.9 + 0.3 * experience_detail
+
+    return base * semantic_factor * emotion_factor * experience_factor
 
 
 # ---- 改进 4: 指数型惩罚函数 ----
@@ -470,15 +577,15 @@ def compute_resonance_value_v2(
 # ============================================================
 
 def run_tests():
-    """v2 共鸣值计算测试 + 与 v1 对比"""
+    """v2 共鸣值计算测试 + 与 v1 对比 + 情感维度测试"""
     print("=" * 70)
     print("  共鸣值计算 v2 测试")
     print("=" * 70)
-    
+
     # 加载编码器
     models_dir = Path(__file__).parent.parent / "shared" / "models"
     encoder = TextEncoder(model_name=str(models_dir / "bge-base-zh-v1.5"))
-    
+
     # 测试锚点
     anchor = Anchor(
         id="a001",
@@ -486,7 +593,7 @@ def run_tests():
         topics=["孤独", "城市"],
     )
     anchor_emb = encoder.encode_single(anchor.text)
-    
+
     # 测试观点
     test_cases = [
         {
@@ -638,7 +745,29 @@ def run_tests():
         v1_bonus = 0.15 * np.log(unique + 1)
         v2_bonus = diversity_bonus_v2(records)
         print(f"{s['label']:<20} {v1_bonus:>10.4f} {v2_bonus:>10.4f} {v2_bonus-v1_bonus:>+8.4f}")
-    
+
+    # ---- 情感维度测试 ----
+    print(f"\n{'='*70}")
+    print(f"  情感维度测试 (v2 新增)")
+    print(f"{'='*70}\n")
+
+    emotion_test_cases = [
+        {"label": "低情感（普通描述）", "text": "地铁上人很多，窗外有灯光。"},
+        {"label": "中等情感（有感触）", "text": "深夜的地铁让人感到孤独，窗外的灯光似乎在诉说着什么。"},
+        {"label": "高情感（强烈表达）", "text": "那一刻我泪流满面！心碎的感觉无法呼吸，这种孤独刻骨铭心！"},
+        {"label": "有经历细节", "text": "记得那年冬天，我第一次独自坐末班地铁，当时周围全是陌生人。"},
+        {"label": "高情感+高细节", "text": "有一次深夜，我独自坐在末班地铁上，热泪盈眶。"
+                                       "那是我第一次意识到，城市的灯火通明，但没有一盏是为我亮的。"},
+    ]
+
+    print(f"{'标签':<25} {'情感强度':>8} {'经历细节':>8} {'深度因子':>8}")
+    print("-" * 55)
+    for case in emotion_test_cases:
+        emotion = compute_emotion_intensity(case["text"])
+        experience = compute_experience_detail(case["text"])
+        depth = compute_depth_v2(case["text"])
+        print(f"{case['label']:<25} {emotion:>8.3f} {experience:>8.3f} {depth:>8.3f}")
+
     print(f"\n✅ v2 测试完成")
 
 

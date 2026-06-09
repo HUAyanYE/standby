@@ -17,6 +17,8 @@ build/
 # Rust
 target/
 Cargo.lock
+src/gateway/target/
+src/proto/generated/
 
 # Flutter
 .dart_tool/

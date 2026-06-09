@@ -89,7 +89,7 @@ class IncrementalBatch:
 # ============================================================
 
 class DataStore:
-    """数据存储接口（内存模拟，生产环境替换为 PostgreSQL/MongoDB）"""
+    """数据存储接口（内存模拟，生产环境替换为 PostgreSQL）"""
     
     def __init__(self):
         self._anchors: dict[str, dict] = {}           # anchor_id → anchor data

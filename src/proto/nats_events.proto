@@ -1,0 +1,172 @@
+// ============================================================
+// Standby — NATS 事件消息定义
+// ============================================================
+// 与 engines/shared/nats_client.py 中的 EventBuilder 对齐
+// 使用 JSON 序列化 (非 protobuf binary) 以简化调试
+
+syntax = "proto3";
+package standby.nats;
+
+option java_package = "com.standby.nats";
+option go_package = "standby/proto/nats";
+
+import "common.proto";
+
+// ============================================================
+// 通用事件信封
+// ============================================================
+
+message EventEnvelope {
+    string event_id = 1;
+    string event_type = 2;          // e.g. "anchor.created", "reaction.submitted"
+    int64 timestamp = 3;
+    string source_engine = 4;
+    string version = 5;             // 事件版本, e.g. "v1"
+    bytes payload = 6;              // 具体事件的 JSON 序列化
+}
+
+// ============================================================
+// 锚点事件
+// ============================================================
+
+message AnchorCreatedEvent {
+    string anchor_id = 1;
+    string anchor_type = 2;
+    repeated string topics = 3;
+    float quality_score = 4;
+    string text = 5;
+}
+
+message AnchorUpdatedEvent {
+    string anchor_id = 1;
+    repeated string topics = 2;
+    float quality_score = 3;
+}
+
+message AnchorReplayedEvent {
+    string anchor_id = 1;
+    string trigger_type = 2;        // seasonal / classic_cycle / affinity
+    float trigger_score = 3;
+}
+
+// ============================================================
+// 反应事件
+// ============================================================
+
+message ReactionSubmittedEvent {
+    string user_id = 1;
+    string anchor_id = 2;
+    string reaction_type = 3;
+    string opinion_text = 4;
+    string source_engine = 5;
+}
+
+message ReactionProcessedEvent {
+    string event_id = 1;
+    string user_id = 2;
+    string anchor_id = 3;
+    float resonance_value = 4;
+    float relationship_score = 5;
+    string related_user_id = 6;
+}
+
+// ============================================================
+// 共鸣事件
+// ============================================================
+
+message ResonanceUpdatedEvent {
+    string anchor_id = 1;
+    string user_a_id = 2;
+    string user_b_id = 3;
+    float new_score = 4;
+    string topic = 5;
+}
+
+message TrustChangedEvent {
+    string user_id = 1;
+    int32 old_trust_level = 2;
+    int32 new_trust_level = 3;
+    string reason = 4;
+}
+
+message TraceFoundEvent {
+    string user_id = 1;
+    string other_user_id = 2;
+    string anchor_id = 3;
+    float similarity = 4;
+}
+
+// ============================================================
+// 治理事件
+// ============================================================
+
+message GovernanceDecisionEvent {
+    string content_id = 1;
+    string level = 2;
+    string reason = 3;
+    float severity = 4;
+}
+
+message GovernanceActionEvent {
+    string content_id = 1;
+    repeated string actions = 2;
+    string reason = 3;
+}
+
+message GovernanceAlertEvent {
+    string content_id = 1;
+    string level = 2;
+    string reason = 3;
+    float severity = 4;
+}
+
+message GovernanceMarkedEvent {
+    string content_id = 1;
+    string marker_id = 2;
+    string mark_type = 3;
+}
+
+message GovernanceCreditUpdatedEvent {
+    string marker_id = 1;
+    float old_credit = 2;
+    float new_credit = 3;
+}
+
+// ============================================================
+// 用户事件
+// ============================================================
+
+message ConfidantEstablishedEvent {
+    string user_a_id = 1;
+    string user_b_id = 2;
+    float relationship_score = 3;
+    int32 shared_anchors = 4;
+}
+
+message UserActivityChangedEvent {
+    string user_id = 1;
+    string activity_type = 2;       // active / idle / offline
+}
+
+message UserTrustChangeEvent {
+    string user_id = 1;
+    int32 old_level = 2;
+    int32 new_level = 3;
+    string reason = 4;
+}
+
+// ============================================================
+// 情境事件
+// ============================================================
+
+message ContextStateChangedEvent {
+    string user_id = 1;
+    string scene_type = 2;
+    string mood_hint = 3;
+}
+
+message ContextAnchorHintEvent {
+    string user_id = 1;
+    repeated string suggested_topics = 2;
+    float confidence = 3;
+}

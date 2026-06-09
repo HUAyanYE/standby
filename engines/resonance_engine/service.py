@@ -5,11 +5,11 @@
 引擎间通过 gRPC 同步调用 + NATS 异步消息通信。
 
 数据层:
-- PostgreSQL: 锚点向量、共鸣向量存储
-- MongoDB: 反应事件流水
+- PostgreSQL: 锚点向量、共鸣向量存储、反应事件流水
 """
 
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -25,6 +25,11 @@ from shared.engine_base import (
     vector_to_bytes, bytes_to_vector,
 )
 from shared.db import get_pg, put_pg, get_redis
+from shared.pg_compat import (
+    get_reaction_counts_by_type, find_resonance_reaction_users,
+    list_reactions_paginated, count_reactions_filtered,
+    save_reaction_event,
+)
 
 # gRPC 生成代码
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "proto" / "generated" / "python"))
@@ -42,7 +47,7 @@ from shared.nats_client import NATSClient, EventBuilder
 
 
 class ResonanceEngineServicer(EngineServicer):
-    """共鸣机制引擎 gRPC 服务 — PostgreSQL + MongoDB"""
+    """共鸣机制引擎 gRPC 服务 — PostgreSQL"""
 
     def __init__(self, config: EngineConfig):
         super().__init__(config)
@@ -52,7 +57,7 @@ class ResonanceEngineServicer(EngineServicer):
         from shared.encoders.text_encoder import TextEncoder
         self.encoder = TextEncoder(model_name=str(models_dir / "bge-base-zh-v1.5"))
 
-        # 内存缓存 (热点数据, 持久化到 PG/Mongo)
+        # 内存缓存 (热点数据, 持久化到 PostgreSQL)
         self._anchors_cache = {}            # anchor_id → {text, topics, embedding}
         self._opinion_embeddings_cache = {} # anchor_id → [np.ndarray]
 
@@ -116,7 +121,7 @@ class ResonanceEngineServicer(EngineServicer):
             else:
                 embedding = np.frombuffer(bytes(str(raw), 'utf-8'), dtype=np.float32).reshape(768)
 
-            # TODO: 从 MongoDB 获取锚点文本和 topics
+            # TODO: 从 PostgreSQL 获取锚点文本和 topics
             # 暂时用默认值
             anchor_data = {
                 "text": "",
@@ -237,7 +242,8 @@ class ResonanceEngineServicer(EngineServicer):
 
     def _save_reaction(self, anchor_id: str, user_id: str, reaction_type: str,
                        opinion_text: str, resonance_value: float,
-                       opinion_vector: np.ndarray | None):
+                       opinion_vector: np.ndarray | None,
+                       parent_reaction_id: str = None):
         """保存反应数据"""
         try:
             # PG: 存共鸣向量
@@ -253,7 +259,7 @@ class ResonanceEngineServicer(EngineServicer):
                 # 更新缓存
                 self._opinion_embeddings_cache.setdefault(anchor_id, []).append(opinion_vector)
 
-            # PostgreSQL: 存完整事件
+            # PostgreSQL: 存完整事件 (含感受链)
             save_reaction_event({
                 "anchor_id": anchor_id,
                 "user_id": user_id,
@@ -261,29 +267,15 @@ class ResonanceEngineServicer(EngineServicer):
                 "opinion_text": opinion_text,
                 "resonance_value": resonance_value,
                 "timestamp": time.time(),
+                "parent_reaction_id": parent_reaction_id,
             })
         except Exception as e:
             self.logger.error(f"保存反应失败: {e}")
 
     def _get_reaction_counts(self, anchor_id: str) -> dict:
-        """从 MongoDB 获取反应分布"""
+        """从 PostgreSQL 获取反应分布"""
         try:
-            mongo = get_mongo()
-            pipeline = [
-                {"$match": {"anchor_id": anchor_id}},
-                {"$group": {"_id": "$reaction_type", "count": {"$sum": 1}}},
-            ]
-            results = list(mongo.reactions.aggregate(pipeline))
-            counts = {r["_id"]: r["count"] for r in results}
-            total = sum(counts.values())
-            return {
-                "resonance_count": counts.get("共鸣", 0),
-                "neutral_count": counts.get("无感", 0),
-                "opposition_count": counts.get("反对", 0),
-                "unexperienced_count": counts.get("未体验", 0),
-                "harmful_count": counts.get("有害", 0),
-                "total_count": total,
-            }
+            return get_reaction_counts_by_type(anchor_id)
         except Exception as e:
             self.logger.error(f"获取反应分布失败: {e}")
             return {
@@ -293,15 +285,9 @@ class ResonanceEngineServicer(EngineServicer):
             }
 
     def _find_resonance_pairs(self, anchor_id: str, user_id: str) -> list:
-        """从 MongoDB 找到在同一锚点上有共鸣的其他用户"""
+        """从 PostgreSQL 找到在同一锚点上有共鸣的其他用户"""
         try:
-            mongo = get_mongo()
-            reactions = mongo.reactions.find({
-                "anchor_id": anchor_id,
-                "reaction_type": "共鸣",
-                "user_id": {"$ne": user_id},
-            })
-            return [r["user_id"] for r in reactions]
+            return find_resonance_reaction_users(anchor_id, user_id)
         except Exception as e:
             self.logger.error(f"查找共鸣对失败: {e}")
             return []
@@ -359,7 +345,67 @@ class ResonanceEngineServicer(EngineServicer):
         )
 
     def GetRelationshipScore(self, request, context):
-        return engines_pb2.GetRelationshipScoreResponse(found=False)
+        """查询关系分 — 从 PostgreSQL relationships 表查询真实数据"""
+        user_a = request.user_a_id
+        user_b = request.user_b_id
+
+        try:
+            pg = get_pg()
+            cur = pg.cursor()
+            # relationships 表中 user_a_hash < user_b_hash 排序
+            a, b = sorted([user_a, user_b])
+            cur.execute("""
+                SELECT score_a_to_b, score_b_to_a, topic_diversity
+                FROM relationships
+                WHERE user_a_hash = %s AND user_b_hash = %s
+            """, (a, b))
+            row = cur.fetchone()
+            put_pg(pg)
+
+            if not row:
+                return engines_pb2.GetRelationshipScoreResponse(found=False)
+
+            score_a_to_b = row[0] or 0.0
+            score_b_to_a = row[1] or 0.0
+            topic_diversity = row[2] or 0
+
+            # 查询两人的共同锚点数（共鸣数）
+            resonance_count = 0
+            try:
+                pg2 = get_pg()
+                cur2 = pg2.cursor()
+                cur2.execute("""
+                    SELECT COUNT(DISTINCT r1.anchor_id)
+                    FROM reactions r1
+                    JOIN reactions r2 ON r1.anchor_id = r2.anchor_id
+                    WHERE r1.user_id = %s AND r2.user_id = %s
+                      AND r1.reaction_type = '共鸣' AND r2.reaction_type = '共鸣'
+                """, (user_a, user_b))
+                resonance_count = cur2.fetchone()[0] or 0
+                put_pg(pg2)
+            except Exception:
+                pass
+
+            # 根据 user_a 查询时返回对应方向的分数
+            if user_a == a:
+                return engines_pb2.GetRelationshipScoreResponse(
+                    found=True,
+                    score_a_to_b=score_a_to_b,
+                    score_b_to_a=score_b_to_a,
+                    topic_diversity=topic_diversity,
+                    resonance_count=resonance_count,
+                )
+            else:
+                return engines_pb2.GetRelationshipScoreResponse(
+                    found=True,
+                    score_a_to_b=score_b_to_a,
+                    score_b_to_a=score_a_to_b,
+                    topic_diversity=topic_diversity,
+                    resonance_count=resonance_count,
+                )
+        except Exception as e:
+            self.logger.error(f"查询关系分失败: {e}")
+            return engines_pb2.GetRelationshipScoreResponse(found=False)
 
     def GetReactionDistribution(self, request, context):
         result = self.get_reaction_distribution(request)
@@ -381,7 +427,7 @@ class ResonanceEngineServicer(EngineServicer):
 
     def FindResonancePairs(self, request, context):
         user_id = request.user_id if request.user_id else "anonymous"
-        logger.info(f"查找共鸣对，用户: {user_id}")
+        self.logger.info(f"查找共鸣对，用户: {user_id}")
         
         try:
             pg = get_pg()
@@ -400,62 +446,30 @@ class ResonanceEngineServicer(EngineServicer):
                     END as relationship_score
                 FROM relationships
                 WHERE (user_a_hash = %s OR user_b_hash = %s)
-                  AND (score_a_to_b > 0.5 OR score_b_to_a > 0.5)  # 只返回分数较高的关系
+                  AND (score_a_to_b > 0.5 OR score_b_to_a > 0.5)
                 ORDER BY relationship_score DESC
                 LIMIT 10
             """, (user_id, user_id, user_id, user_id))
             
             rows = cur.fetchall()
             put_pg(pg)
-            logger.info(f"查询到 {len(rows)} 个关系")
+            self.logger.info(f"查询到 {len(rows)} 个关系")
             
             pairs = []
             for row in rows:
                 other_user_id = row[0]
                 relationship_score = row[1]
                 
-                # 计算共同锚点数（简化版本，暂设为0）
-                shared_anchors = 0
-                
                 pairs.append(engines_pb2.ResonancePair(
                     other_user_id=other_user_id,
                     relationship_score=relationship_score,
-                    shared_anchors=shared_anchors
+                    shared_anchors=0
                 ))
-            
-            # 如果查询结果为空，返回测试数据
-            if not pairs:
-                logger.info("未找到关系，返回测试数据")
-                pairs = [
-                    engines_pb2.ResonancePair(
-                        other_user_id="user_night_traveler",
-                        relationship_score=0.85,
-                        shared_anchors=5
-                    ),
-                    engines_pb2.ResonancePair(
-                        other_user_id="user_autumn_poet",
-                        relationship_score=0.72,
-                        shared_anchors=3
-                    ),
-                ]
             
             return engines_pb2.FindResonancePairsResponse(pairs=pairs)
         except Exception as e:
-            logger.error(f"查询关系失败: {e}")
-            # 返回测试数据
-            test_pairs = [
-                engines_pb2.ResonancePair(
-                    other_user_id="user_night_traveler",
-                    relationship_score=0.85,
-                    shared_anchors=5
-                ),
-                engines_pb2.ResonancePair(
-                    other_user_id="user_autumn_poet",
-                    relationship_score=0.72,
-                    shared_anchors=3
-                ),
-            ]
-            return engines_pb2.FindResonancePairsResponse(pairs=test_pairs)
+            self.logger.error(f"查询关系失败: {e}")
+            return engines_pb2.FindResonancePairsResponse(pairs=[])
 
     def EncodeText(self, request, context):
         result = self.encode_text(request)
@@ -465,27 +479,21 @@ class ResonanceEngineServicer(EngineServicer):
         )
 
     def ListReactions(self, request, context):
-        """列出锚点的反应 (从 MongoDB 查询)"""
+        """列出锚点的反应 (从 PostgreSQL 查询)"""
         anchor_id = request.anchor_id
         page = max(1, request.page)
         page_size = min(50, max(1, request.page_size)) if request.page_size > 0 else 20
         skip = (page - 1) * page_size
 
         try:
-            mongo = get_mongo()
-            query = {"anchor_id": anchor_id}
-            if request.filter_type:
-                # filter_type 可以是 "共鸣"/"无感" 字符串或数字
-                query["reaction_type"] = request.filter_type
+            # filter_type 可以是 "共鸣"/"无感" 字符串
+            filter_type = request.filter_type if request.filter_type else None
 
-            total_count = mongo.reactions.count_documents(query)
-            cursor = mongo.reactions.find(query) \
-                .sort("timestamp", -1) \
-                .skip(skip) \
-                .limit(page_size)
+            total_count = count_reactions_filtered(anchor_id, filter_type)
+            docs = list_reactions_paginated(anchor_id, filter_type, skip, page_size)
 
             reactions = []
-            for doc in cursor:
+            for doc in docs:
                 # reaction_type 可能是数字 (来自 gRPC) 或字符串 (旧数据)
                 rt = doc.get("reaction_type", 0)
                 if isinstance(rt, str):
@@ -579,18 +587,63 @@ class ResonanceEngineServicer(EngineServicer):
             op_emb = opinion_vector if opinion_vector is not None else np.zeros(768)
             top_k_sims = self._find_top_k_similar(request.anchor_id, op_emb, k=5)
 
-            # 5. 计算共鸣值 (v2) — 使用预计算的 top-k 相似度
-            score = compute_resonance_value_v2(
-                reaction=reaction,
-                anchor=anchor,
-                opinion_embedding=op_emb,
-                anchor_embedding=anchor_data["embedding"],
-                existing_opinion_embeddings=[],  # 不再需要全量加载
-                precomputed_top_k_sims=top_k_sims if top_k_sims else None,
-                total_existing_count=len(top_k_sims),
-            )
+            # 5. 计算共鸣值 — 优先使用 Rust 高性能服务
+            score = None
+            use_rust = os.environ.get("USE_RUST_RESONANCE", "true").lower() == "true"
 
-            # 6. 存储到 PG + Mongo
+            if use_rust:
+                try:
+                    from shared.rust_engine_client import call_resonance_compute_sync
+
+                    # 映射反应类型到中文字符串
+                    reaction_type_map = {
+                        ReactionType.RESONANCE: "共鸣",
+                        ReactionType.NEUTRAL: "无感",
+                        ReactionType.OPPOSITION: "反对",
+                        ReactionType.UNEXPERIENCED: "未体验",
+                        ReactionType.HARMFUL: "有害",
+                    }
+                    emotion_word_map = {
+                        EmotionWord.EMPATHY: "同感",
+                        EmotionWord.TRIGGER: "触发",
+                        EmotionWord.INSIGHT: "启发",
+                        EmotionWord.SHOCK: "震撼",
+                    }
+
+                    result = call_resonance_compute_sync(
+                        user_id=request.user_id,
+                        anchor_id=request.anchor_id,
+                        reaction_type=reaction_type_map.get(reaction.reaction_type, "无感"),
+                        opinion_embedding=op_emb.tolist(),
+                        anchor_embedding=anchor_data["embedding"].tolist(),
+                        existing_embeddings=[],  # Rust 服务使用 pgvector 预计算的 top-k
+                        opinion_text=request.opinion_text,
+                        emotion_word=emotion_word_map.get(emotion_word) if emotion_word else None,
+                    )
+
+                    score = ResonanceScore(
+                        value=result["value"],
+                        components=result["components"],
+                    )
+                    self.logger.debug("使用 Rust 服务计算共鸣值")
+                except Exception as rust_err:
+                    self.logger.warning(f"Rust 服务调用失败，降级到 Python: {rust_err}")
+                    score = None
+
+            # Fallback: 使用 Python 本地计算
+            if score is None:
+                score = compute_resonance_value_v2(
+                    reaction=reaction,
+                    anchor=anchor,
+                    opinion_embedding=op_emb,
+                    anchor_embedding=anchor_data["embedding"],
+                    existing_opinion_embeddings=[],
+                    precomputed_top_k_sims=top_k_sims if top_k_sims else None,
+                    total_existing_count=len(top_k_sims),
+                )
+                self.logger.debug("使用 Python 本地计算共鸣值")
+
+            # 6. 存储到 PostgreSQL (含感受链)
             self._save_reaction(
                 anchor_id=request.anchor_id,
                 user_id=request.user_id,
@@ -598,6 +651,7 @@ class ResonanceEngineServicer(EngineServicer):
                 opinion_text=request.opinion_text,
                 resonance_value=score.value if score else 0,
                 opinion_vector=opinion_vector,
+                parent_reaction_id=getattr(request, 'parent_reaction_id', None) or None,
             )
 
             # 7. 关系分更新
@@ -646,7 +700,7 @@ class ResonanceEngineServicer(EngineServicer):
             }
 
     def get_reaction_distribution(self, request) -> dict:
-        """查询锚点的反应分布 (从 MongoDB)"""
+        """查询锚点的反应分布 (从 PostgreSQL)"""
         anchor_id = request.anchor_id if hasattr(request, 'anchor_id') else request
 
         counts = self._get_reaction_counts(anchor_id)

@@ -6,8 +6,7 @@
 本服务实现第二层 (规则 + 信用加权)。
 
 数据层:
-- PostgreSQL: 标记者信用 (users.marker_credit)
-- MongoDB: 治理决策日志
+- PostgreSQL: 标记者信用 (users.marker_credit), 治理决策日志
 """
 
 import logging
@@ -20,9 +19,13 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "proto" / "generated" / "python"))
 from shared.engine_base import EngineConfig, EngineServicer, timing_decorator
 from shared.db import get_pg, put_pg
+from shared.pg_compat import save_governance_decision
 from engines import engines_pb2_grpc
 from engines import engines_pb2
 from common import common_pb2
+
+# NATS 事件
+from shared.nats_client import NATSClient, EventBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +40,7 @@ from rule_governance_v2 import (
 
 
 class GovernanceEngineServicer(EngineServicer):
-    """内容治理引擎 gRPC 服务 — PostgreSQL + MongoDB"""
+    """内容治理引擎 gRPC 服务 — PostgreSQL"""
 
     def __init__(self, config: EngineConfig):
         super().__init__(config)
@@ -50,6 +53,11 @@ class GovernanceEngineServicer(EngineServicer):
         self._pending_credit_updates: dict[str, float] = {}
         self._flush_interval = 10  # 秒
         self._start_flush_thread()
+
+        # NATS 事件客户端
+        import os
+        nats_url = os.environ.get("NATS_URL", "nats://localhost:4222")
+        self._nats = NATSClient(nats_url=nats_url, engine_name="governance_engine")
 
     def _load_marker_credits(self):
         """从 PostgreSQL 加载标记者信用"""
@@ -126,20 +134,47 @@ class GovernanceEngineServicer(EngineServicer):
 
     def _save_decision(self, content_id: str, level: str, harmful_weight: float,
                        marker_avg_credit: float, reason: str, actions: list):
-        """保存治理决策到 MongoDB"""
+        """保存治理决策到 PostgreSQL"""
         try:
-            mongo = get_mongo()
-            mongo.governance_logs.insert_one({
+            save_governance_decision({
                 "content_id": content_id,
                 "level": level,
                 "harmful_weight": harmful_weight,
                 "marker_avg_credit": marker_avg_credit,
                 "reason": reason,
                 "actions": actions,
-                "timestamp": time.time(),
             })
         except Exception as e:
             logger.error(f"保存治理决策日志失败: {e}")
+
+    def _publish_event_async(self, event):
+        """非阻塞发布 NATS 事件 (使用持久化事件循环)"""
+        import asyncio
+        import threading
+
+        if not hasattr(self, '_nats_loop'):
+            self._nats_loop = asyncio.new_event_loop()
+            self._nats_thread = threading.Thread(
+                target=self._run_nats_loop, daemon=True
+            )
+            self._nats_thread.start()
+
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self._nats.publish(event), self._nats_loop
+            )
+            future.add_done_callback(
+                lambda f: logger.warning(f"NATS 发布失败: {f.exception()}")
+                if f.exception() else None
+            )
+        except Exception as e:
+            logger.warning(f"NATS 事件发布调度失败: {e}")
+
+    def _run_nats_loop(self):
+        """NATS 事件循环后台线程"""
+        import asyncio
+        asyncio.set_event_loop(self._nats_loop)
+        self._nats_loop.run_forever()
 
     def register_services(self, server):
         engines_pb2_grpc.add_GovernanceEngineServicer_to_server(self, server)
@@ -261,12 +296,30 @@ class GovernanceEngineServicer(EngineServicer):
             },
         }
 
-        # 保存决策日志到 Mongo
+        # 保存决策日志到 PostgreSQL
         self._save_decision(
             content_id, decision.level.value,
             decision.harmful_weight, decision.marker_avg_credit,
             decision.reason, decision.actions,
         )
+
+        # 发布 NATS 事件
+        self._publish_event_async(
+            EventBuilder.governance_alert(
+                content_id=content_id,
+                level=decision.level.value,
+                reason=decision.reason,
+                severity=decision.harmful_weight,
+            )
+        )
+        if decision.actions:
+            self._publish_event_async(
+                EventBuilder.governance_action(
+                    content_id=content_id,
+                    actions=decision.actions,
+                    reason=decision.reason,
+                )
+            )
 
         return result
 
@@ -383,9 +436,23 @@ class GovernanceEngineServicer(EngineServicer):
         return {"success": True, "updated_count": updated}
 
 
+import asyncio
+
+
 def main():
     config = EngineConfig.from_yaml("governance_engine")
     servicer = GovernanceEngineServicer(config)
+
+    # 初始化 NATS 连接
+    try:
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(servicer._nats.connect())
+        loop.close()
+        logger.info("NATS 连接初始化完成")
+    except Exception as e:
+        logger.warning(f"NATS 连接失败，降级到 mock 模式: {e}")
+        servicer._nats.use_mock = True
+
     servicer.run()
 
 

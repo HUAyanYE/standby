@@ -2,50 +2,58 @@
 name = "standby-gateway"
 version = "0.1.0"
 edition = "2021"
-description = "Standby API Gateway"
+description = "Standby API Gateway — REST-to-gRPC proxy with device authentication"
+
+[[bin]]
+name = "standby-gateway"
+path = "src/main.rs"
 
 [dependencies]
-# Web 框架
+# HTTP 框架
 axum = { version = "0.7", features = ["macros"] }
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "timeout", "request-id"] }
+
+# 异步运行时
 tokio = { version = "1", features = ["full"] }
-tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "trace", "request-id"] }
+
+# gRPC 客户端
+tonic = { version = "0.12", features = ["transport", "tls", "tls-roots"] }
+prost = "0.13"
 
 # 序列化
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# gRPC 客户端 (连接 Python 引擎)
-tonic = "0.12"
-prost = "0.13"
-
-# NATS 客户端
-async-nats = "0.37"
-
-# 认证 & 加密
+# JWT
 jsonwebtoken = "9"
-ring = "0.17"
-argon2 = "0.5"
 
 # 日志
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
-# 配置
-config = "0.14"
-
-# 时间
-chrono = { version = "0.4", features = ["serde"] }
-
-# UUID
+# 工具
 uuid = { version = "1", features = ["v4"] }
-
-# 错误处理
+chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
 anyhow = "1"
 
-# 异步
-futures = "0.3"
+# 密码学
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
+
+# 并发数据结构
+dashmap = "6"
+
+# 环境变量
+dotenvy = "0.15"
+
+# 编码
+hex = "0.4"
+
+# 数据库
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono"] }
 
 [build-dependencies]
 tonic-build = "0.12"

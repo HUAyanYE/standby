@@ -1,0 +1,119 @@
+// ============================================================
+// Standby — 公共消息定义
+// ============================================================
+// 被各引擎 proto 文件 import 使用
+
+syntax = "proto3";
+package standby.common;
+
+option java_package = "com.standby.common";
+option go_package = "standby/proto/common";
+
+// ============================================================
+// 锚点
+// ============================================================
+
+message Anchor {
+    string anchor_id = 1;
+    string text = 2;
+    repeated string topics = 3;
+    AnchorQuality quality = 4;
+    int64 created_at = 5;
+}
+
+message AnchorQuality {
+    float completeness = 1;     // 完整性 0-1
+    float specificity = 2;      // 具体性 0-1
+    float authenticity = 3;     // 真实性 0-1
+    float thought_space = 4;    // 思考空间 0-1
+    float tangible = 5;         // 有形性 0-1
+    float overall = 6;          // 综合分 0-1
+}
+
+message AnchorSummary {
+    string anchor_id = 1;
+    string text = 2;
+    repeated string topics = 3;
+    float quality_score = 4;
+    int32 reaction_count = 5;
+    int64 created_at = 6;
+}
+
+// ============================================================
+// 反应
+// ============================================================
+
+enum ReactionType {
+    REACTION_TYPE_UNSPECIFIED = 0;
+    RESONANCE = 1;      // 共鸣
+    NEUTRAL = 2;        // 无感
+    OPPOSITION = 3;     // 反对
+    UNEXPERIENCED = 4;  // 未体验
+    HARMFUL = 5;        // 有害
+}
+
+enum EmotionWord {
+    EMOTION_WORD_UNSPECIFIED = 0;
+    EMPATHY = 1;        // 同感
+    TRIGGER = 2;        // 触发
+    INSIGHT = 3;        // 启发
+    SHOCK = 4;          // 震撼
+}
+
+message ReactionSummary {
+    int32 resonance_count = 1;
+    int32 neutral_count = 2;
+    int32 opposition_count = 3;
+    int32 unexperienced_count = 4;
+    int32 harmful_count = 5;
+    int32 total_count = 6;
+}
+
+// ============================================================
+// 治理
+// ============================================================
+
+enum GovernanceLevel {
+    GOVERNANCE_LEVEL_UNSPECIFIED = 0;
+    L0_NORMAL = 1;      // 正常
+    L1_OBSERVE = 2;     // 观察
+    L2_DEMOTED = 3;     // 降权
+    L3_SUSPENDED = 4;   // 暂停
+    L4_REMOVED = 5;     // 移除
+    DISPUTED = 6;       // 争议
+}
+
+message GovernanceDecision {
+    string content_id = 1;
+    GovernanceLevel level = 2;
+    float harmful_weight = 3;
+    float marker_avg_credit = 4;
+    string reason = 5;
+    repeated string actions = 6;
+}
+
+// ============================================================
+// 关系
+// ============================================================
+
+message RelationshipScore {
+    string user_a_id = 1;
+    string user_b_id = 2;
+    float score_a_to_b = 3;
+    float score_b_to_a = 4;
+    int32 topic_diversity = 5;
+    int32 resonance_count = 6;
+}
+
+// ============================================================
+// 情境
+// ============================================================
+
+message ContextState {
+    string user_id = 1;
+    string scene_type = 2;
+    string mood_hint = 3;
+    string attention_level = 4;
+    int32 active_device = 5;
+    int64 timestamp = 6;
+}

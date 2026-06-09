@@ -1,135 +1,57 @@
 """
-Pytest 配置文件 - 提供共享 fixtures
+Standby 引擎测试 — 公共 fixtures
 """
 
 import sys
-import os
-import pytest
-import numpy as np
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
-# 添加引擎目录到 Python 路径
-engines_dir = Path(__file__).parent.parent
-sys.path.insert(0, str(engines_dir))
-sys.path.insert(0, str(engines_dir / "shared"))
+import numpy as np
+import pytest
 
-
-# ============================================================
-# 基础 Fixtures
-# ============================================================
-
-@pytest.fixture
-def sample_embedding():
-    """示例向量 (768维)"""
-    np.random.seed(42)
-    return np.random.randn(768).astype(np.float32)
+# 将引擎目录加入 path
+ENGINES_DIR = Path(__file__).parent.parent
+sys.path.insert(0, str(ENGINES_DIR))
+sys.path.insert(0, str(ENGINES_DIR / "resonance_engine"))
+sys.path.insert(0, str(ENGINES_DIR / "governance_engine"))
+sys.path.insert(0, str(ENGINES_DIR / "anchor_engine"))
+sys.path.insert(0, str(ENGINES_DIR / "shared"))
 
 
 @pytest.fixture
-def sample_embeddings(sample_embedding):
-    """多个示例向量"""
-    return [sample_embedding + np.random.randn(768).astype(np.float32) * 0.1 
-            for _ in range(5)]
+def random_embedding():
+    """生成随机 768 维单位向量"""
+    vec = np.random.randn(768).astype(np.float32)
+    return vec / np.linalg.norm(vec)
 
 
 @pytest.fixture
-def mock_pg():
-    """Mock PostgreSQL 连接"""
-    mock = MagicMock()
-    mock.cursor.return_value = MagicMock()
-    return mock
+def similar_embedding():
+    """生成与 random_embedding 相似的向量 (余弦相似度 ~0.8)"""
+    base = np.random.randn(768).astype(np.float32)
+    base = base / np.linalg.norm(base)
+    noise = np.random.randn(768).astype(np.float32) * 0.2
+    vec = base + noise
+    return vec / np.linalg.norm(vec)
 
 
 @pytest.fixture
-def mock_mongo():
-    """Mock MongoDB 连接"""
-    mock = MagicMock()
-    mock.reactions = MagicMock()
-    return mock
-
-
-# ============================================================
-# Resonance Engine Fixtures
-# ============================================================
-
-@pytest.fixture
-def sample_reaction():
-    """示例反应数据"""
-    from resonance_engine.resonance_calculator_v2 import Reaction, ReactionType, EmotionWord
-    return Reaction(
-        user_id="test_user_001",
-        anchor_id="test_anchor_001",
-        reaction_type=ReactionType.RESONANCE,
-        opinion_text="这是一个测试观点",
-        emotion_word=EmotionWord.EMPATHY,
-        timestamp=1700000000.0,
-    )
+def dissimilar_embedding():
+    """生成与 random_embedding 不相似的向量 (余弦相似度 ~0.1)"""
+    vec = np.random.randn(768).astype(np.float32)
+    return vec / np.linalg.norm(vec)
 
 
 @pytest.fixture
-def sample_anchor(sample_embedding):
-    """示例锚点数据"""
-    from resonance_engine.resonance_calculator_v2 import Anchor
-    return Anchor(
-        id="test_anchor_001",
-        text="中美关系的深层逻辑",
-        topics=["国际关系", "中美博弈"],
-        embedding=sample_embedding,
-    )
-
-
-@pytest.fixture
-def resonance_calculator():
-    """共鸣计算器模块"""
-    from resonance_engine import resonance_calculator_v2 as rc
-    return rc
-
-
-# ============================================================
-# Anchor Engine Fixtures
-# ============================================================
-
-@pytest.fixture
-def anchor_calculator():
-    """锚点计算器模块"""
-    # 延迟导入，避免依赖问题
-    try:
-        from anchor_engine import anchor_calculator as ac
-        return ac
-    except ImportError:
-        pytest.skip("anchor_engine 模块不可用")
-
-
-# ============================================================
-# Governance Engine Fixtures
-# ============================================================
-
-@pytest.fixture
-def governance_calculator():
-    """治理计算器模块"""
-    try:
-        from governance_engine import governance_calculator as gc
-        return gc
-    except ImportError:
-        pytest.skip("governance_engine 模块不可用")
-
-
-# ============================================================
-# Mock 数据库操作
-# ============================================================
-
-@pytest.fixture
-def mock_db_operations():
-    """Mock 数据库操作"""
-    with patch('shared.db.get_pg') as mock_pg, \
-         patch('shared.db.get_mongo') as mock_mongo:
-        
-        # 配置 mock
-        mock_pg.return_value = MagicMock()
-        mock_mongo.return_value = MagicMock()
-        
-        yield {
-            'pg': mock_pg,
-            'mongo': mock_mongo,
-        }
+def sample_texts():
+    """样本文本集合"""
+    return {
+        "short": "今天天气不错。",
+        "medium": "每天早上挤地铁的时候，我都会想起小时候在乡下坐拖拉机的日子。那时候觉得慢，现在觉得挤。",
+        "long": "深夜一个人在便利店吃关东煮，看着窗外的霓虹灯，突然觉得这座城市既陌生又温暖。"
+               "我想起了第一次来这个城市的时候，那时候什么都不懂，只觉得这里灯火通明。"
+               "现在我在这里生活了五年，有了自己的小窝，有了几个可以深夜打电话的朋友。"
+               "但有时候，还是会觉得孤独。不是那种没人陪的孤独，而是那种身处人群中的孤独。",
+        "emotional": "那一刻，我泪流满面。不是因为难过，而是因为终于被理解了。",
+        "abstract": "人生的意义在于不断追寻自我价值的实现。",
+        "tangible": "那杯咖啡已经凉了，但我还是端起来喝了一口。苦涩的味道让我清醒了一些。",
+    }

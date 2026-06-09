@@ -46,26 +46,30 @@ fi
 case "${MODE}" in
     dev)
         info "启动开发环境..."
-        info "启动基础服务 (PostgreSQL, MongoDB, Dragonfly, NATS)..."
-        ${COMPOSE_CMD} up -d postgres mongodb dragonfly nats
+        info "启动基础服务 (PostgreSQL, Dragonfly, NATS)..."
+        ${COMPOSE_CMD} up -d postgres dragonfly nats
         
         info "等待基础服务就绪..."
         sleep 5
         
+        info "启动 Rust 高性能服务..."
+        ${COMPOSE_CMD} up -d resonance-rust
+
         info "启动 AI 引擎..."
-        ${COMPOSE_CMD} up -d resonance-engine anchor-engine governance-engine
-        
+        ${COMPOSE_CMD} up -d resonance-engine anchor-engine governance-engine context-engine
+
         info "启动 API 网关..."
         ${COMPOSE_CMD} up -d api-gateway
-        
+
         info ""
         info "✅ 开发环境已启动！"
         info ""
         info "服务地址:"
         info "  API 网关:      http://localhost:8080"
         info "  健康检查:      http://localhost:8080/health"
+        info "  共鸣计算(Rust): http://localhost:8095"
         info "  PostgreSQL:    localhost:5432"
-        info "  MongoDB:       localhost:27017"
+        info "  MinIO:         localhost:9000 (Console: http://localhost:9001)"
         info "  Dragonfly:     localhost:6379"
         info "  NATS:          localhost:4222 (监控: http://localhost:8222)"
         info ""

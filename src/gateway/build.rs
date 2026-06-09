@@ -1,20 +1,16 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 从 src/gateway/ 到 src/proto/
-    let proto_root = "../proto";
-    
+    let proto_dir = "../../src/proto";
+
     tonic_build::configure()
-        .build_server(false)  // 只生成客户端
+        .build_server(false)
         .build_client(true)
         .compile_protos(
             &[
-                format!("{proto_root}/common/common.proto"),
-                format!("{proto_root}/engines/engines.proto"),
+                format!("{}/common.proto", proto_dir),
+                format!("{}/engines.proto", proto_dir),
             ],
-            &[proto_root.to_string()],
+            &[proto_dir],
         )?;
-    
-    println!("cargo:rerun-if-changed={proto_root}/common/common.proto");
-    println!("cargo:rerun-if-changed={proto_root}/engines/engines.proto");
-    
+
     Ok(())
 }

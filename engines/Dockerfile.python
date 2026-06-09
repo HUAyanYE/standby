@@ -30,16 +30,17 @@ ARG ENGINE_NAME=resonance_engine
 ENV ENGINE_NAME=${ENGINE_NAME}
 
 # 默认端口映射
-# resonance: 8091, anchor: 8090, governance: 8092
+# anchor: 8090, resonance: 8091, governance: 8092, user: 8093, context: 8094
 RUN case "${ENGINE_NAME}" in \
     resonance_engine) echo "PORT=8091" >> /app/.env ;; \
     anchor_engine)    echo "PORT=8090" >> /app/.env ;; \
     governance_engine) echo "PORT=8092" >> /app/.env ;; \
     user_engine)      echo "PORT=8093" >> /app/.env ;; \
+    context_engine)   echo "PORT=8094" >> /app/.env ;; \
     *)                echo "PORT=8090" >> /app/.env ;; \
     esac
 
-EXPOSE 8090 8091 8092
+EXPOSE 8090 8091 8092 8093 8094
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
