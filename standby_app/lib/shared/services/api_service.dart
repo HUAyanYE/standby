@@ -5,13 +5,16 @@ import '../../core/constants/app_constants.dart';
 import '../models/request_status.dart';
 
 /// Standby API 服务 — 通过 REST 与 Gateway 通信
+///
+/// 网关端点前缀: /api/v1
+/// 认证: JWT Bearer token + 设备指纹签名
 class ApiService {
   static String? _baseUrlOverride;
 
   static String get _baseUrl {
     if (_baseUrlOverride != null) return _baseUrlOverride!;
     if (kIsWeb) return 'http://localhost:8080';
-    return 'http://localhost:8080';
+    return AppConstants.apiBaseUrl;
   }
 
   static void setBaseUrl(String url) {
@@ -52,7 +55,7 @@ class ApiService {
           options.headers['Authorization'] = 'Bearer $_accessToken';
         }
         if (_deviceFingerprint != null) {
-          options.headers['X-Device-Fingerprint'] = _deviceFingerprint;
+          options.headers['X-Device-Id'] = _deviceFingerprint;
         }
         handler.next(options);
       },
@@ -74,21 +77,31 @@ class ApiService {
     }
   }
 
-  /// 设备认证
+  /// 设备认证 (注册/登录)
   Future<bool> _authenticate() async {
     try {
-      final resp = await _dio.post('/auth/device', data: {
-        'device_type': 'phone',
-        'device_fingerprint': _deviceFingerprint,
-        'os_version': AppConstants.osVersion,
-        'app_version': AppConstants.appVersion,
-      });
-
-      final data = resp.data;
-      _accessToken = data['access_token'];
-      await _storage.write(key: 'access_token', value: _accessToken);
-
-      return true;
+      // 先尝试登录
+      try {
+        final loginResp = await _dio.post('/api/v1/auth/login', data: {
+          'device_fingerprint': _deviceFingerprint,
+        });
+        final data = loginResp.data;
+        _accessToken = data['data']['token'];
+        await _storage.write(key: 'access_token', value: _accessToken);
+        return true;
+      } on DioException catch (e) {
+        if (e.response?.statusCode == 401) {
+          // 未注册，执行注册
+          final regResp = await _dio.post('/api/v1/auth/register', data: {
+            'device_fingerprint': _deviceFingerprint,
+          });
+          final data = regResp.data;
+          _accessToken = data['data']['token'];
+          await _storage.write(key: 'access_token', value: _accessToken);
+          return true;
+        }
+        rethrow;
+      }
     } catch (e) {
       print('认证失败: $e');
       return false;
@@ -111,63 +124,48 @@ class ApiService {
     };
     if (topicFilter != null) params['topic_filter'] = topicFilter;
 
-    final resp = await _dio.get('/anchors', queryParameters: params);
+    final resp = await _dio.get('/api/v1/anchors', queryParameters: params);
     return resp.data;
   }
 
   /// 获取锚点详情
   Future<Map<String, dynamic>> getAnchor(String anchorId) async {
-    final resp = await _dio.get('/anchors/$anchorId');
+    final resp = await _dio.get('/api/v1/anchors/$anchorId');
     return resp.data;
   }
 
-  /// 创建锚点 (多模态)
+  /// 创建锚点
   Future<Map<String, dynamic>> createAnchor({
-    required String modality,
-    String? textContent,
-    List<String>? mediaIds,
-    required List<String> topics,
+    required List<String> sourceTexts,
+    List<String>? topicHints,
     String source = 'user',
+    String modality = 'text',
   }) async {
     final data = <String, dynamic>{
+      'source_texts': sourceTexts,
+      'source': source,
       'modality': modality,
-      'topics': topics,
-      'source': source,
     };
-    if (textContent != null) data['text_content'] = textContent;
-    if (mediaIds != null && mediaIds.isNotEmpty) data['media_ids'] = mediaIds;
+    if (topicHints != null) data['topic_hints'] = topicHints;
 
-    final resp = await _dio.post('/anchors', data: data);
+    final resp = await _dio.post('/api/v1/anchors', data: data);
     return resp.data;
   }
 
-  /// 创建锚点 (系统 AI)
-  Future<Map<String, dynamic>> createAnchorFromSystemAi({
-    required String text,
-    required List<String> topics,
-    required String source,
-    String? mediaId,
-    String? emotionHint,
-  }) async {
-    final data = <String, dynamic>{
-      'text': text,
-      'topics': topics,
-      'source': source,
-    };
-    if (mediaId != null) data['media_id'] = mediaId;
-    if (emotionHint != null) data['emotion_hint'] = emotionHint;
-
-    final resp = await _dio.post('/anchors/from-system-ai', data: data);
+  /// 获取锚点的群体记忆
+  Future<Map<String, dynamic>> getGroupMemory(String anchorId) async {
+    final resp = await _dio.get('/api/v1/anchors/$anchorId/memory');
     return resp.data;
   }
 
-  /// 获取重现锚点
-  Future<Map<String, dynamic>> getReplayAnchors({
-    int limit = 5,
+  /// 获取感受链
+  Future<Map<String, dynamic>> getFeelingChain(
+    String anchorId, {
+    int maxDepth = 3,
   }) async {
     final resp = await _dio.get(
-      '/anchors/replay',
-      queryParameters: {'limit': limit},
+      '/api/v1/anchors/$anchorId/chain',
+      queryParameters: {'max_depth': maxDepth},
     );
     return resp.data;
   }
@@ -176,25 +174,21 @@ class ApiService {
   // 反应 API
   // ============================================================
 
-  /// 提交反应 (多模态)
+  /// 提交反应
   Future<Map<String, dynamic>> submitReaction({
     required String anchorId,
-    required String reactionType,
-    String? emotionWord,
-    required String modality,
-    String? textContent,
-    List<String>? mediaIds,
+    required int reactionType,
+    String? opinionText,
+    int? emotionWord,
   }) async {
     final data = <String, dynamic>{
       'anchor_id': anchorId,
       'reaction_type': reactionType,
-      'modality': modality,
     };
+    if (opinionText != null) data['opinion_text'] = opinionText;
     if (emotionWord != null) data['emotion_word'] = emotionWord;
-    if (textContent != null) data['text_content'] = textContent;
-    if (mediaIds != null && mediaIds.isNotEmpty) data['media_ids'] = mediaIds;
 
-    final resp = await _dio.post('/reactions', data: data);
+    final resp = await _dio.post('/api/v1/reactions', data: data);
     return resp.data;
   }
 
@@ -205,68 +199,60 @@ class ApiService {
     int pageSize = 20,
     String? filterType,
   }) async {
-    final params = <String, dynamic>{'page': page, 'page_size': pageSize};
+    final params = <String, dynamic>{
+      'anchor_id': anchorId,
+      'page': page,
+      'page_size': pageSize,
+    };
     if (filterType != null) params['filter_type'] = filterType;
-    final resp = await _dio.get('/anchors/$anchorId/reactions', queryParameters: params);
+    final resp = await _dio.get('/api/v1/reactions', queryParameters: params);
     return resp.data;
   }
 
-  /// 获取锚点反应统计
-  Future<Map<String, dynamic>> getReactionSummary(String anchorId) async {
-    final resp = await _dio.get('/anchors/$anchorId/summary');
+  /// 获取锚点反应分布
+  Future<Map<String, dynamic>> getReactionDistribution(String anchorId) async {
+    final resp = await _dio.get('/api/v1/reactions/distribution/$anchorId');
     return resp.data;
   }
 
   // ============================================================
-  // 请求状态 API
+  // 关系 API
   // ============================================================
 
-  /// 查询异步请求状态
-  Future<RequestStatus> getRequestStatus(String requestId) async {
-    final resp = await _dio.get('/request/$requestId/status');
-    return RequestStatus.fromJson(resp.data);
+  /// 查找共鸣对
+  Future<Map<String, dynamic>> findResonancePairs(String userId) async {
+    final resp = await _dio.get('/api/v1/relationships/$userId');
+    return resp.data;
   }
 
-  /// 轮询等待请求完成
-  Future<RequestStatus> waitForRequest(
-    String requestId, {
-    Duration timeout = const Duration(seconds: 30),
-    Duration interval = const Duration(milliseconds: 500),
-  }) async {
-    final deadline = DateTime.now().add(timeout);
-    while (DateTime.now().isBefore(deadline)) {
-      final status = await getRequestStatus(requestId);
-      if (status.status != RequestStatusValue.pending) {
-        return status;
-      }
-      await Future.delayed(interval);
-    }
-    return RequestStatus(
-      requestId: requestId,
-      status: RequestStatusValue.failed,
-      error: 'Timeout',
+  /// 获取关系分
+  Future<Map<String, dynamic>> getRelationshipScore(
+    String userA,
+    String userB,
+  ) async {
+    final resp = await _dio.get(
+      '/api/v1/relationships/score',
+      queryParameters: {'user_a': userA, 'user_b': userB},
     );
-  }
-
-  // ============================================================
-  // 用户 API
-  // ============================================================
-
-  /// 获取用户档案
-  Future<Map<String, dynamic>> getProfile() async {
-    final resp = await _dio.get('/me');
     return resp.data;
   }
 
-  /// 获取共鸣痕迹
-  Future<Map<String, dynamic>> getResonanceTraces() async {
-    final resp = await _dio.get('/traces');
-    return resp.data;
-  }
+  // ============================================================
+  // 治理 API
+  // ============================================================
 
-  /// 获取关系列表
-  Future<Map<String, dynamic>> getRelationships() async {
-    final resp = await _dio.get('/relationships');
+  /// 评估内容治理
+  Future<Map<String, dynamic>> evaluateContent({
+    required String contentId,
+    String contentType = 'anchor',
+    required Map<String, int> reactionSummary,
+  }) async {
+    final data = <String, dynamic>{
+      'content_id': contentId,
+      'content_type': contentType,
+      ...reactionSummary,
+    };
+    final resp = await _dio.post('/api/v1/governance/evaluate', data: data);
     return resp.data;
   }
 
@@ -274,86 +260,39 @@ class ApiService {
   // 情境 API
   // ============================================================
 
-  /// 获取情境化提示
-  Future<Map<String, dynamic>> getContextualHint() async {
-    final resp = await _dio.get('/context/hint');
-    return resp.data;
-  }
-
   /// 提交情境状态
   Future<void> submitContextState({
     required String sceneType,
-    required String moodHint,
-    required String attentionLevel,
-    required String activeDevice,
+    String? moodHint,
+    String? attentionLevel,
+    int? activeDevice,
   }) async {
-    await _dio.post('/context', data: {
+    await _dio.post('/api/v1/context', data: {
       'scene_type': sceneType,
-      'mood_hint': moodHint,
-      'attention_level': attentionLevel,
-      'active_device': activeDevice,
+      if (moodHint != null) 'mood_hint': moodHint,
+      if (attentionLevel != null) 'attention_level': attentionLevel,
+      if (activeDevice != null) 'active_device': activeDevice,
     });
   }
 
-  /// 接收系统 AI 上下文
-  Future<void> ingestContext({
-    required String contextType,
-    required Map<String, dynamic> rawData,
-  }) async {
-    await _dio.post('/context/ingest', data: {
-      'context_type': contextType,
-      'raw_data': rawData,
-      'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-    });
-  }
-
-  /// 获取锚点候选 (系统 AI 生成)
-  Future<List<Map<String, dynamic>>> getContextCandidates() async {
-    final resp = await _dio.get('/context/candidates');
-    return (resp.data['candidates'] as List).cast<Map<String, dynamic>>();
-  }
-
-  // ============================================================
-  // 治理 API
-  // ============================================================
-
-  /// 举报内容
-  Future<Map<String, dynamic>> reportContent({
-    required String contentId,
-    required String contentType,
-    required String reason,
-  }) async {
-    final resp = await _dio.post('/report', data: {
-      'content_id': contentId,
-      'content_type': contentType,
-      'reason': reason,
-    });
+  /// 获取情境化话题权重
+  Future<Map<String, dynamic>> getContextualWeights(List<String> topics) async {
+    final resp = await _dio.get(
+      '/api/v1/context/weights',
+      queryParameters: {'topics': topics.join(',')},
+    );
     return resp.data;
   }
 
   // ============================================================
-  // 话题 API
+  // 编码 API
   // ============================================================
 
-  /// 获取热搜话题
-  Future<List<Map<String, dynamic>>> getTrendingTopics() async {
-    try {
-      final resp = await _dio.get('/topics/trending');
-      return (resp.data['topics'] as List).cast<Map<String, dynamic>>();
-    } catch (e) {
-      // 如果端点不存在，返回空列表
-      return [];
-    }
-  }
-
-  /// 话题自动补全
-  Future<List<String>> autocompleteTopic(String query) async {
-    try {
-      final resp = await _dio.get('/topics/autocomplete', queryParameters: {'q': query});
-      return (resp.data['suggestions'] as List).cast<String>();
-    } catch (e) {
-      // 如果端点不存在，返回空列表
-      return [];
-    }
+  /// 文本编码为向量
+  Future<Map<String, dynamic>> encodeText(List<String> texts) async {
+    final resp = await _dio.post('/api/v1/encode', data: {
+      'texts': texts,
+    });
+    return resp.data;
   }
 }

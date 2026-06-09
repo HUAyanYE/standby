@@ -151,10 +151,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ],
           Text(
             page.content,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 18,
               height: 1.8,
-              color: Colors.black87,
+              color: StandbyColors.text1,
             ),
             textAlign: TextAlign.center,
           ),

@@ -245,7 +245,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           '选择你的昵称',
           style: TextStyle(
             fontSize: 14,
-            color: Colors.grey.shade700,
+            color: StandbyColors.text2,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -378,7 +378,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           '选择你的头像',
           style: TextStyle(
             fontSize: 14,
-            color: Colors.grey.shade700,
+            color: StandbyColors.text2,
             fontWeight: FontWeight.w500,
           ),
         ),
