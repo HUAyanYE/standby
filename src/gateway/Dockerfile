@@ -3,7 +3,7 @@
 # ============================================================
 
 # Stage 1: 构建
-FROM rust:1.75-slim as builder
+FROM rust:1.88-slim as builder
 
 WORKDIR /app
 

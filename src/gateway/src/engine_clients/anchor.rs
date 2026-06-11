@@ -22,13 +22,14 @@ impl AnchorClient {
         Ok(Self { inner })
     }
 
-    pub async fn check_health(&mut self) -> bool {
+    pub async fn check_health(&self) -> bool {
+        let mut inner = self.inner.clone();
         let req = tonic::Request::new(super::super::proto::engines::ListAnchorsRequest {
             page: 1,
             page_size: 1,
             topic_filter: String::new(),
         });
-        self.inner.list_anchors(req).await.is_ok()
+        inner.list_anchors(req).await.is_ok()
     }
 
     pub async fn generate_anchor(

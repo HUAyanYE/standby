@@ -99,6 +99,8 @@ services:
       DB_POSTGRES: postgres://${POSTGRES_USER:-standby}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-standby}
       LOG_LEVEL: INFO
       RUST_RESONANCE_URL: http://resonance-rust:8095
+    volumes:
+      - model_cache:/app/engines/shared/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -127,6 +129,8 @@ services:
       NATS_URL: nats://nats:4222
       DB_POSTGRES: postgres://${POSTGRES_USER:-standby}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-standby}
       LOG_LEVEL: INFO
+    volumes:
+      - model_cache:/app/engines/shared/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -195,7 +199,7 @@ services:
       PORT: 8095
       RUST_LOG: info
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8095/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8095/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -213,7 +217,7 @@ services:
       PORT: 8096
       RUST_LOG: info
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8096/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8096/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -261,3 +265,4 @@ volumes:
   pgdata:
   natsdata:
   minio_data:
+  model_cache:

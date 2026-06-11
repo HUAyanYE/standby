@@ -24,11 +24,12 @@ impl GovernanceClient {
         Ok(Self { inner })
     }
 
-    pub async fn check_health(&mut self) -> bool {
+    pub async fn check_health(&self) -> bool {
+        let mut inner = self.inner.clone();
         let req = tonic::Request::new(super::super::proto::engines::CheckMarkCredibilityRequest {
             marker_token_hash: String::new(),
         });
-        self.inner.check_mark_credibility(req).await.is_ok()
+        inner.check_mark_credibility(req).await.is_ok()
     }
 
     pub async fn evaluate_content(

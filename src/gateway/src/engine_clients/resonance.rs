@@ -23,14 +23,15 @@ impl ResonanceClient {
         Ok(Self { inner })
     }
 
-    pub async fn check_health(&mut self) -> bool {
+    pub async fn check_health(&self) -> bool {
+        let mut inner = self.inner.clone();
         let req = tonic::Request::new(super::super::proto::engines::ListReactionsRequest {
             anchor_id: String::new(),
             page: 1,
             page_size: 1,
             filter_type: String::new(),
         });
-        self.inner.list_reactions(req).await.is_ok()
+        inner.list_reactions(req).await.is_ok()
     }
 
     pub async fn process_reaction(
