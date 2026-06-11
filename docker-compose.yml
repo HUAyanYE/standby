@@ -100,7 +100,7 @@ services:
       LOG_LEVEL: INFO
       RUST_RESONANCE_URL: http://resonance-rust:8095
     volumes:
-      - model_cache:/app/engines/shared/models
+      - ./engines/shared/models:/app/engines/shared/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -130,7 +130,7 @@ services:
       DB_POSTGRES: postgres://${POSTGRES_USER:-standby}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-standby}
       LOG_LEVEL: INFO
     volumes:
-      - model_cache:/app/engines/shared/models
+      - ./engines/shared/models:/app/engines/shared/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -248,13 +248,13 @@ services:
       postgres:
         condition: service_healthy
       anchor-engine:
-        condition: service_started
+        condition: service_healthy
       resonance-engine:
-        condition: service_started
+        condition: service_healthy
       governance-engine:
-        condition: service_started
+        condition: service_healthy
       context-engine:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
       interval: 5s
@@ -265,4 +265,3 @@ volumes:
   pgdata:
   natsdata:
   minio_data:
-  model_cache:
