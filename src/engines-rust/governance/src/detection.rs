@@ -13,7 +13,7 @@ pub fn detect_velocity_anomaly(
     }
 
     let mut sorted: Vec<f64> = timestamps.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     for window in sorted.windows(max_reactions) {
         let span = window[max_reactions - 1] - window[0];
@@ -44,7 +44,7 @@ pub fn detect_coordinated_marking(
         .copied()
         .zip(marker_ids.iter())
         .collect();
-    pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
     for window in pairs.windows(threshold) {
         let time_span = window[threshold - 1].0 - window[0].0;

@@ -26,7 +26,7 @@ void main() async {
       await storage.setDeviceFingerprint(fp);
     }
     ApiService().init(fp).catchError((e) {
-      print('API initialization failed: $e');
+      debugPrint('API initialization failed: $e');
     });
   }
 

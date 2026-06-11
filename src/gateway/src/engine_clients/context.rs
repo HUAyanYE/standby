@@ -22,6 +22,14 @@ impl ContextClient {
         Ok(Self { inner })
     }
 
+    pub async fn check_health(&mut self) -> bool {
+        let req = tonic::Request::new(super::super::proto::engines::GetContextualWeightsRequest {
+            user_id: String::new(),
+            candidate_topics: vec![],
+        });
+        self.inner.get_contextual_weights(req).await.is_ok()
+    }
+
     pub async fn submit_context(
         &mut self,
         user_id: &str,

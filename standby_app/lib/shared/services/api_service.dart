@@ -103,7 +103,7 @@ class ApiService {
         rethrow;
       }
     } catch (e) {
-      print('认证失败: $e');
+      debugPrint('认证失败: $e');
       return false;
     }
   }

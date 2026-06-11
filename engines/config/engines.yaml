@@ -196,7 +196,7 @@ shared:
       port: 5432
       database: "standby"
       user: "standby"
-      password: "standby_dev_password"
+      password: "${POSTGRES_PASSWORD}"  # 从环境变量读取
     dragonfly:
       host: "localhost"
       port: 6379

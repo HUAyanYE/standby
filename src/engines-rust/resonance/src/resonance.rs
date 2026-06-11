@@ -84,7 +84,7 @@ pub fn compute_novelty(
         .collect();
 
     // 取 top-k 相似度的均值
-    similarities.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    similarities.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
     let k = k_neighbors.min(similarities.len());
     let mean_top_k: f64 = similarities[..k].iter().sum::<f64>() / k as f64;
 
@@ -95,16 +95,17 @@ pub fn compute_novelty(
     ((1.0 - mean_top_k) * density_factor).max(0.1)
 }
 
-/// 复合深度信号 (v2: 字数 × 语义正交性)
+/// 复合深度信号 (v2: 字数 × 语义正交性 × 情感强度 × 经历细节)
 ///
 /// v1: 纯字数分档
 /// v2: 字数权重 × 语义正交性
+/// v2.1: 添加情感强度因子和经历细节因子
 pub fn compute_depth(
     text: Option<&str>,
     opinion_embedding: Option<&[f32]>,
     anchor_embedding: Option<&[f32]>,
 ) -> f64 {
-    // 字数权重
+    // 1. 字数权重
     let base = match text {
         None => 0.6,
         Some(t) if t.trim().is_empty() => 0.6,
@@ -114,15 +115,122 @@ pub fn compute_depth(
         Some(_) => 1.05,
     };
 
-    // 语义正交性 (可选)
-    if let (Some(op_emb), Some(an_emb)) = (opinion_embedding, anchor_embedding) {
+    // 2. 语义正交性 (可选)
+    let semantic_factor = if let (Some(op_emb), Some(an_emb)) = (opinion_embedding, anchor_embedding) {
         let cos_sim = dot(op_emb, an_emb) as f64;
         let orthogonality = 1.0 - cos_sim.abs();
-        let semantic_factor = 0.85 + 0.3 * orthogonality;
-        base * semantic_factor
+        0.85 + 0.3 * orthogonality
     } else {
-        base
+        1.0
+    };
+
+    // 3. 情感强度因子 (映射到 [0.8, 1.3])
+    let emotion_intensity = compute_emotion_intensity(text);
+    let emotion_factor = 0.8 + 0.5 * emotion_intensity;
+
+    // 4. 经历细节因子 (映射到 [0.9, 1.2])
+    let experience_detail = compute_experience_detail(text);
+    let experience_factor = 0.9 + 0.3 * experience_detail;
+
+    base * semantic_factor * emotion_factor * experience_factor
+}
+
+/// 计算文本中的情感强度 (0.0 - 1.0)
+///
+/// 检测维度:
+/// 1. 情感关键词匹配
+/// 2. 感叹号/问号密度
+/// 3. 情感词汇密度
+fn compute_emotion_intensity(text: Option<&str>) -> f64 {
+    let text = match text {
+        None => return 0.0,
+        Some(t) if t.trim().is_empty() => return 0.0,
+        Some(t) => t,
+    };
+
+    let mut score: f64 = 0.0;
+
+    // 1. 情感关键词匹配
+    let high_keywords = ["震撼", "崩溃", "泪流满面", "无法呼吸", "心碎", "绝望", "狂喜",
+                         "热泪盈眶", "刻骨铭心", "终身难忘", "永生难忘", "改变人生", "颠覆认知"];
+    let medium_keywords = ["感动", "触动", "感慨", "难过", "开心", "激动", "怀念", "思念",
+                           "温暖", "心酸", "欣慰", "释然", "顿悟", "觉醒"];
+    let low_keywords = ["还好", "一般", "普通", "还行", "没什么", "无所谓", "随便"];
+
+    for keyword in &high_keywords {
+        if text.contains(keyword) {
+            score += 0.3;
+        }
     }
+    for keyword in &medium_keywords {
+        if text.contains(keyword) {
+            score += 0.15;
+        }
+    }
+    for keyword in &low_keywords {
+        if text.contains(keyword) {
+            score -= 0.1;
+        }
+    }
+
+    // 2. 感叹号/问号密度
+    let exclamation_count = text.matches('！').count() as f64 + text.matches('!').count() as f64;
+    let question_count = text.matches('？').count() as f64 + text.matches('?').count() as f64;
+    let punctuation_density = (exclamation_count + question_count) / text.len().max(1) as f64;
+    score += (punctuation_density * 10.0).min(0.2);
+
+    // 3. 情感词汇密度 (形容词后缀)
+    let adj_suffixes = ["的", "地", "得", "了", "着", "过"];
+    let adj_count: f64 = adj_suffixes.iter()
+        .map(|suffix| text.matches(suffix).count() as f64)
+        .sum();
+    let adj_density = adj_count / text.len().max(1) as f64;
+    score += (adj_density * 5.0).min(0.2);
+
+    score.clamp(0.0, 1.0)
+}
+
+/// 计算文本中的经历细节程度 (0.0 - 1.0)
+///
+/// 检测维度:
+/// 1. 经历细节关键词
+/// 2. 时间/地点标记
+/// 3. 人称代词使用
+fn compute_experience_detail(text: Option<&str>) -> f64 {
+    let text = match text {
+        None => return 0.0,
+        Some(t) if t.trim().is_empty() => return 0.0,
+        Some(t) => t,
+    };
+
+    let mut score: f64 = 0.0;
+
+    // 1. 经历细节关键词
+    let detail_keywords = ["有一次", "记得", "曾经", "那年", "小时候", "第一次", "最后一次",
+                           "那天", "当时", "后来", "从此", "从此以后", "直到现在", "至今",
+                           "在我", "我在", "我们", "我的", "他的", "她的"];
+    let detail_count = detail_keywords.iter()
+        .filter(|k| text.contains(*k))
+        .count() as f64;
+    score += (detail_count * 0.1).min(0.5);
+
+    // 2. 时间/地点标记
+    let time_markers = ["年", "月", "日", "时", "分", "秒", "早上", "中午", "下午", "晚上",
+                        "凌晨", "深夜", "傍晚", "黄昏", "黎明"];
+    let time_count = time_markers.iter()
+        .filter(|m| text.contains(*m))
+        .count() as f64;
+    score += (time_count * 0.1).min(0.3);
+
+    // 3. 人称代词使用 (表示个人视角)
+    let personal_pronouns = ["我", "你", "他", "她", "我们", "你们", "他们"];
+    let pronoun_count: f64 = personal_pronouns.iter()
+        .map(|p| text.matches(p).count() as f64)
+        .sum();
+    let pronoun_density = pronoun_count / text.len().max(1) as f64;
+    score += (pronoun_density * 10.0).min(0.2);
+
+    score.clamp(0.0, 1.0)
 }
 
 /// 完整共鸣值计算 (v2)
@@ -254,10 +362,11 @@ mod tests {
 
     #[test]
     fn test_depth_medium_text() {
-        // "字".repeat(100) = 100 chars, but Rust String::len() returns bytes
-        // Chinese chars = 3 bytes each, so 300 bytes > 200 → depth = 1.05
+        // "字".repeat(100) = 100 chars, 300 bytes > 200 → base=1.05
+        // 无情感词/经历词 → emotion_factor=0.8, experience_factor=0.9
+        // depth = 1.05 * 1.0 * 0.8 * 0.9 = 0.756
         let d = compute_depth(Some(&"字".repeat(100)), None, None);
-        assert!((d - 1.05).abs() < 0.001, "100个中文字符=300字节 > 200, depth应为1.05");
+        assert!((d - 0.756).abs() < 0.01, "100个中文字符无情感词, depth应为0.756, got {}", d);
     }
 
     #[test]
@@ -294,13 +403,19 @@ mod tests {
 
     #[test]
     fn test_depth_no_text() {
-        assert_eq!(compute_depth(None, None, None), 0.6);
+        // base=0.6, semantic=1.0, emotion=0.8, experience=0.9
+        // depth = 0.6 * 1.0 * 0.8 * 0.9 = 0.432
+        let d = compute_depth(None, None, None);
+        assert!((d - 0.432).abs() < 0.01, "无文本 depth 应为 0.432, got {}", d);
     }
 
     #[test]
     fn test_depth_short_text() {
+        // "短" = 3 bytes < 20 → base=0.8
+        // 无情感词/经历词 → emotion=0.8, experience=0.9
+        // depth = 0.8 * 1.0 * 0.8 * 0.9 = 0.576
         let d = compute_depth(Some("短"), None, None);
-        assert!((d - 0.8).abs() < 0.001);
+        assert!((d - 0.576).abs() < 0.01, "短文本 depth 应为 0.576, got {}", d);
     }
 
     #[test]
@@ -328,8 +443,9 @@ mod tests {
         let emb = fake_embedding(1.0);
         let score = compute_resonance_value(&reaction, &anchor, &emb, &emb, &[]).unwrap();
 
-        // 纯点击: weight=1.0, depth=0.6, relevance=1.0, novelty=1.0
-        assert!((score.value - 0.6).abs() < 0.01);
+        // 纯点击: weight=1.0, depth=0.432, relevance=1.0, novelty=1.0
+        // value = 1.0 * 0.432 * 1.0 * 1.0 = 0.432
+        assert!((score.value - 0.432).abs() < 0.01, "纯点击共鸣值应为 0.432, got {}", score.value);
     }
 
     #[test]
@@ -355,5 +471,37 @@ mod tests {
         let emb = fake_embedding(1.0);
         let score = compute_resonance_value(&reaction, &anchor, &emb, &emb, &[]).unwrap();
         assert!(score.value < 0.0, "反对应为负值");
+    }
+
+    #[test]
+    fn test_emotion_intensity_high() {
+        let intensity = compute_emotion_intensity(Some("我泪流满面，心碎了"));
+        assert!(intensity > 0.3, "高情感文本应 > 0.3, got {}", intensity);
+    }
+
+    #[test]
+    fn test_emotion_intensity_none() {
+        let intensity = compute_emotion_intensity(None);
+        assert_eq!(intensity, 0.0);
+    }
+
+    #[test]
+    fn test_experience_detail_high() {
+        let detail = compute_experience_detail(Some("记得那年小时候，我第一次看到雪"));
+        assert!(detail > 0.3, "高经历细节应 > 0.3, got {}", detail);
+    }
+
+    #[test]
+    fn test_experience_detail_none() {
+        let detail = compute_experience_detail(None);
+        assert_eq!(detail, 0.0);
+    }
+
+    #[test]
+    fn test_depth_with_emotion() {
+        // 包含情感词的文本，depth 应更高
+        let d_neutral = compute_depth(Some("这个观点很好"), None, None);
+        let d_emotional = compute_depth(Some("这个观点让我泪流满面，震撼！"), None, None);
+        assert!(d_emotional > d_neutral, "情感文本 depth 应更高: {} vs {}", d_emotional, d_neutral);
     }
 }

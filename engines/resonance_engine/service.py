@@ -25,7 +25,7 @@ from shared.engine_base import (
     vector_to_bytes, bytes_to_vector,
 )
 from shared.db import get_pg, put_pg, get_redis
-from shared.pg_compat import (
+from shared.db_queries import (
     get_reaction_counts_by_type, find_resonance_reaction_users,
     list_reactions_paginated, count_reactions_filtered,
     save_reaction_event,
@@ -36,10 +36,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "proto" / "
 from engines import engines_pb2_grpc
 from engines import engines_pb2
 
-# v2 算法
+# 数据结构 (从 v2 算法模块导入)
 from resonance_calculator_v2 import (
     Reaction, Anchor, ReactionType, EmotionWord,
-    compute_resonance_value_v2, compute_relationship_score_v2,
 )
 
 # NATS 事件发布
@@ -349,63 +348,55 @@ class ResonanceEngineServicer(EngineServicer):
         user_a = request.user_a_id
         user_b = request.user_b_id
 
-        try:
-            pg = get_pg()
-            cur = pg.cursor()
-            # relationships 表中 user_a_hash < user_b_hash 排序
-            a, b = sorted([user_a, user_b])
-            cur.execute("""
-                SELECT score_a_to_b, score_b_to_a, topic_diversity
-                FROM relationships
-                WHERE user_a_hash = %s AND user_b_hash = %s
-            """, (a, b))
-            row = cur.fetchone()
-            put_pg(pg)
+        pg = get_pg()
+        cur = pg.cursor()
+        # relationships 表中 user_a_hash < user_b_hash 排序
+        a, b = sorted([user_a, user_b])
+        cur.execute("""
+            SELECT score_a_to_b, score_b_to_a, topic_diversity
+            FROM relationships
+            WHERE user_a_hash = %s AND user_b_hash = %s
+        """, (a, b))
+        row = cur.fetchone()
+        put_pg(pg)
 
-            if not row:
-                return engines_pb2.GetRelationshipScoreResponse(found=False)
-
-            score_a_to_b = row[0] or 0.0
-            score_b_to_a = row[1] or 0.0
-            topic_diversity = row[2] or 0
-
-            # 查询两人的共同锚点数（共鸣数）
-            resonance_count = 0
-            try:
-                pg2 = get_pg()
-                cur2 = pg2.cursor()
-                cur2.execute("""
-                    SELECT COUNT(DISTINCT r1.anchor_id)
-                    FROM reactions r1
-                    JOIN reactions r2 ON r1.anchor_id = r2.anchor_id
-                    WHERE r1.user_id = %s AND r2.user_id = %s
-                      AND r1.reaction_type = '共鸣' AND r2.reaction_type = '共鸣'
-                """, (user_a, user_b))
-                resonance_count = cur2.fetchone()[0] or 0
-                put_pg(pg2)
-            except Exception:
-                pass
-
-            # 根据 user_a 查询时返回对应方向的分数
-            if user_a == a:
-                return engines_pb2.GetRelationshipScoreResponse(
-                    found=True,
-                    score_a_to_b=score_a_to_b,
-                    score_b_to_a=score_b_to_a,
-                    topic_diversity=topic_diversity,
-                    resonance_count=resonance_count,
-                )
-            else:
-                return engines_pb2.GetRelationshipScoreResponse(
-                    found=True,
-                    score_a_to_b=score_b_to_a,
-                    score_b_to_a=score_a_to_b,
-                    topic_diversity=topic_diversity,
-                    resonance_count=resonance_count,
-                )
-        except Exception as e:
-            self.logger.error(f"查询关系分失败: {e}")
+        if not row:
             return engines_pb2.GetRelationshipScoreResponse(found=False)
+
+        score_a_to_b = row[0] or 0.0
+        score_b_to_a = row[1] or 0.0
+        topic_diversity = row[2] or 0
+
+        # 查询两人的共同锚点数（共鸣数）
+        pg2 = get_pg()
+        cur2 = pg2.cursor()
+        cur2.execute("""
+            SELECT COUNT(DISTINCT r1.anchor_id)
+            FROM reactions r1
+            JOIN reactions r2 ON r1.anchor_id = r2.anchor_id
+            WHERE r1.user_id = %s AND r2.user_id = %s
+              AND r1.reaction_type = '共鸣' AND r2.reaction_type = '共鸣'
+        """, (user_a, user_b))
+        resonance_count = cur2.fetchone()[0] or 0
+        put_pg(pg2)
+
+        # 根据 user_a 查询时返回对应方向的分数
+        if user_a == a:
+            return engines_pb2.GetRelationshipScoreResponse(
+                found=True,
+                score_a_to_b=score_a_to_b,
+                score_b_to_a=score_b_to_a,
+                topic_diversity=topic_diversity,
+                resonance_count=resonance_count,
+            )
+        else:
+            return engines_pb2.GetRelationshipScoreResponse(
+                found=True,
+                score_a_to_b=score_b_to_a,
+                score_b_to_a=score_a_to_b,
+                topic_diversity=topic_diversity,
+                resonance_count=resonance_count,
+            )
 
     def GetReactionDistribution(self, request, context):
         result = self.get_reaction_distribution(request)
@@ -485,39 +476,35 @@ class ResonanceEngineServicer(EngineServicer):
         page_size = min(50, max(1, request.page_size)) if request.page_size > 0 else 20
         skip = (page - 1) * page_size
 
-        try:
-            # filter_type 可以是 "共鸣"/"无感" 字符串
-            filter_type = request.filter_type if request.filter_type else None
+        # filter_type 可以是 "共鸣"/"无感" 字符串
+        filter_type = request.filter_type if request.filter_type else None
 
-            total_count = count_reactions_filtered(anchor_id, filter_type)
-            docs = list_reactions_paginated(anchor_id, filter_type, skip, page_size)
+        total_count = count_reactions_filtered(anchor_id, filter_type)
+        docs = list_reactions_paginated(anchor_id, filter_type, skip, page_size)
 
-            reactions = []
-            for doc in docs:
-                # reaction_type 可能是数字 (来自 gRPC) 或字符串 (旧数据)
-                rt = doc.get("reaction_type", 0)
-                if isinstance(rt, str):
-                    type_map = {"共鸣": 1, "无感": 2, "反对": 3, "未体验": 4, "有害": 5}
-                    rt = type_map.get(rt, 0)
+        reactions = []
+        for doc in docs:
+            # reaction_type 可能是数字 (来自 gRPC) 或字符串 (旧数据)
+            rt = doc.get("reaction_type", 0)
+            if isinstance(rt, str):
+                type_map = {"共鸣": 1, "无感": 2, "反对": 3, "未体验": 4, "有害": 5}
+                rt = type_map.get(rt, 0)
 
-                reactions.append(engines_pb2.ReactionItem(
-                    reaction_id=str(doc.get("_id", "")),
-                    user_id=doc.get("user_id", ""),
-                    reaction_type=rt,
-                    emotion_word=0,
-                    opinion_text=doc.get("opinion_text", ""),
-                    resonance_value=doc.get("resonance_value", 0.0),
-                    created_at=int(doc.get("timestamp", 0)),
-                ))
+            reactions.append(engines_pb2.ReactionItem(
+                reaction_id=str(doc.get("id", "")),
+                user_id=doc.get("user_id", ""),
+                reaction_type=rt,
+                emotion_word=0,
+                opinion_text=doc.get("opinion_text", ""),
+                resonance_value=doc.get("resonance_value", 0.0),
+                created_at=int(doc.get("created_at", 0)),
+            ))
 
-            return engines_pb2.ListReactionsResponse(
-                reactions=reactions,
-                total_count=total_count,
-                has_more=(skip + page_size < total_count),
-            )
-        except Exception as e:
-            self.logger.error(f"列出反应失败: {e}")
-            return engines_pb2.ListReactionsResponse(reactions=[], total_count=0, has_more=False)
+        return engines_pb2.ListReactionsResponse(
+            reactions=reactions,
+            total_count=total_count,
+            has_more=(skip + page_size < total_count),
+        )
 
     # --------------------------------------------------------
     # RPC 实现
@@ -587,61 +574,40 @@ class ResonanceEngineServicer(EngineServicer):
             op_emb = opinion_vector if opinion_vector is not None else np.zeros(768)
             top_k_sims = self._find_top_k_similar(request.anchor_id, op_emb, k=5)
 
-            # 5. 计算共鸣值 — 优先使用 Rust 高性能服务
-            score = None
-            use_rust = os.environ.get("USE_RUST_RESONANCE", "true").lower() == "true"
+            # 5. 计算共鸣值 — 使用 Rust 高性能服务
+            from shared.rust_engine_client import call_resonance_compute_sync
 
-            if use_rust:
-                try:
-                    from shared.rust_engine_client import call_resonance_compute_sync
+            # 映射反应类型到中文字符串
+            reaction_type_map = {
+                ReactionType.RESONANCE: "共鸣",
+                ReactionType.NEUTRAL: "无感",
+                ReactionType.OPPOSITION: "反对",
+                ReactionType.UNEXPERIENCED: "未体验",
+                ReactionType.HARMFUL: "有害",
+            }
+            emotion_word_map = {
+                EmotionWord.EMPATHY: "同感",
+                EmotionWord.TRIGGER: "触发",
+                EmotionWord.INSIGHT: "启发",
+                EmotionWord.SHOCK: "震撼",
+            }
 
-                    # 映射反应类型到中文字符串
-                    reaction_type_map = {
-                        ReactionType.RESONANCE: "共鸣",
-                        ReactionType.NEUTRAL: "无感",
-                        ReactionType.OPPOSITION: "反对",
-                        ReactionType.UNEXPERIENCED: "未体验",
-                        ReactionType.HARMFUL: "有害",
-                    }
-                    emotion_word_map = {
-                        EmotionWord.EMPATHY: "同感",
-                        EmotionWord.TRIGGER: "触发",
-                        EmotionWord.INSIGHT: "启发",
-                        EmotionWord.SHOCK: "震撼",
-                    }
+            result = call_resonance_compute_sync(
+                user_id=request.user_id,
+                anchor_id=request.anchor_id,
+                reaction_type=reaction_type_map.get(reaction.reaction_type, "无感"),
+                opinion_embedding=op_emb.tolist(),
+                anchor_embedding=anchor_data["embedding"].tolist(),
+                existing_embeddings=[],  # Rust 服务使用 pgvector 预计算的 top-k
+                opinion_text=request.opinion_text,
+                emotion_word=emotion_word_map.get(emotion_word) if emotion_word else None,
+            )
 
-                    result = call_resonance_compute_sync(
-                        user_id=request.user_id,
-                        anchor_id=request.anchor_id,
-                        reaction_type=reaction_type_map.get(reaction.reaction_type, "无感"),
-                        opinion_embedding=op_emb.tolist(),
-                        anchor_embedding=anchor_data["embedding"].tolist(),
-                        existing_embeddings=[],  # Rust 服务使用 pgvector 预计算的 top-k
-                        opinion_text=request.opinion_text,
-                        emotion_word=emotion_word_map.get(emotion_word) if emotion_word else None,
-                    )
-
-                    score = ResonanceScore(
-                        value=result["value"],
-                        components=result["components"],
-                    )
-                    self.logger.debug("使用 Rust 服务计算共鸣值")
-                except Exception as rust_err:
-                    self.logger.warning(f"Rust 服务调用失败，降级到 Python: {rust_err}")
-                    score = None
-
-            # Fallback: 使用 Python 本地计算
-            if score is None:
-                score = compute_resonance_value_v2(
-                    reaction=reaction,
-                    anchor=anchor,
-                    opinion_embedding=op_emb,
-                    anchor_embedding=anchor_data["embedding"],
-                    existing_opinion_embeddings=[],
-                    precomputed_top_k_sims=top_k_sims if top_k_sims else None,
-                    total_existing_count=len(top_k_sims),
-                )
-                self.logger.debug("使用 Python 本地计算共鸣值")
+            score = ResonanceScore(
+                value=result["value"],
+                components=result["components"],
+            )
+            self.logger.debug("使用 Rust 服务计算共鸣值")
 
             # 6. 存储到 PostgreSQL (含感受链)
             self._save_reaction(

@@ -1,46 +1,62 @@
 # ============================================================
-# Python 引擎通用 Dockerfile
+# Python 引擎通用 Dockerfile — 多阶段构建
 # ============================================================
 # 用法: docker build --build-arg ENGINE_NAME=resonance_engine -t standby-resonance .
 # ============================================================
 
-FROM python:3.12-slim AS base
+# Stage 1: 依赖安装
+FROM python:3.12-slim AS deps
 
-# 安装系统依赖 (使用阿里云镜像源)
-RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \
-    apt-get update && apt-get install -y --no-install-recommends \
+WORKDIR /app
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# 工作目录
+# 安装 Python 依赖
+COPY engines/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Stage 2: 运行
+FROM python:3.12-slim
+
 WORKDIR /app
 
-# 安装 Python 依赖 (使用清华源)
-COPY engines/requirements.txt .
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+# 从 deps 阶段复制已安装的 Python 包
+COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=deps /usr/local/bin /usr/local/bin
 
-# 复制 proto 代码
+# 安装运行时依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制必要的代码
+COPY engines/shared /app/engines/shared
+COPY engines/config /app/engines/config
 COPY src/proto /app/src/proto
 
-# 复制引擎代码
-COPY . .
-
-# 暴露端口
+# 复制引擎代码 (根据 ENGINE_NAME 选择性复制)
 ARG ENGINE_NAME=resonance_engine
 ENV ENGINE_NAME=${ENGINE_NAME}
 
+# 复制所有引擎代码 (简化构建)
+COPY engines/anchor_engine /app/engines/anchor_engine
+COPY engines/resonance_engine /app/engines/resonance_engine
+COPY engines/governance_engine /app/engines/governance_engine
+COPY engines/context_engine /app/engines/context_engine
+
 # 默认端口映射
-# anchor: 8090, resonance: 8091, governance: 8092, user: 8093, context: 8094
 RUN case "${ENGINE_NAME}" in \
     resonance_engine) echo "PORT=8091" >> /app/.env ;; \
     anchor_engine)    echo "PORT=8090" >> /app/.env ;; \
     governance_engine) echo "PORT=8092" >> /app/.env ;; \
-    user_engine)      echo "PORT=8093" >> /app/.env ;; \
     context_engine)   echo "PORT=8094" >> /app/.env ;; \
     *)                echo "PORT=8090" >> /app/.env ;; \
     esac
 
-EXPOSE 8090 8091 8092 8093 8094
+EXPOSE 8090 8091 8092 8094
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

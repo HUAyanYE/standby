@@ -16,6 +16,7 @@ mod proto;
 mod routes;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::http::header;
 use axum::middleware::from_fn_with_state;
@@ -70,6 +71,17 @@ async fn main() -> anyhow::Result<()> {
     // 速率限制器
     let rate_limiter = Arc::new(rate_limit::RateLimiter::new(config.rate_limit_per_minute));
 
+    // 启动限流器定期清理任务 (每 5 分钟清理过期条目)
+    let cleanup_limiter = rate_limiter.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(300));
+        loop {
+            interval.tick().await;
+            cleanup_limiter.cleanup();
+            tracing::debug!("限流器过期条目已清理");
+        }
+    });
+
     // 应用状态
     let state = AppState {
         config: Arc::new(config.clone()),
@@ -77,9 +89,15 @@ async fn main() -> anyhow::Result<()> {
         db: db_pool,
     };
 
-    // CORS
+    // CORS — 从环境变量读取允许的域名
+    let allowed_origins: Vec<axum::http::HeaderValue> = std::env::var("CORS_ALLOWED_ORIGINS")
+        .unwrap_or_else(|_| "http://localhost:3000,http://localhost:8080".into())
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
+
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(allowed_origins)
         .allow_methods(Any)
         .allow_headers(vec![
             header::AUTHORIZATION,

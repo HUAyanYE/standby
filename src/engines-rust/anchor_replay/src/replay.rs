@@ -191,7 +191,10 @@ pub fn compute_time_trend(
         "stable"
     };
 
-    let latest = reactions_by_period.get(*periods.last().unwrap()).unwrap();
+    let latest = periods.last()
+        .and_then(|p| reactions_by_period.get(p))
+        .copied()
+        .unwrap_or((0, 0));
     let latest_intensity = ((latest.0 + latest.1) as f64 / 50.0).min(1.0);
 
     TimeTrend {

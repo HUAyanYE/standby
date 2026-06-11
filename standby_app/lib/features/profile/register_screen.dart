@@ -132,36 +132,28 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   void _register() {
-    print('>>> _register() called');
     String nickname;
     String avatar;
 
     // 获取昵称
     if (_useCustomNickname) {
       nickname = _nicknameController.text.trim();
-      print('>>> Custom nickname: $nickname');
       if (nickname.isEmpty) {
         _showError('请输入昵称');
         return;
       }
     } else {
       nickname = _suggestedNicknames[_selectedNicknameIndex];
-      print('>>> Selected nickname: $nickname');
     }
 
     // 获取头像
     if (_useImageAvatar && _imageAvatarPath != null) {
-      // 使用图片路径作为头像标识
       avatar = 'file://$_imageAvatarPath';
-      print('>>> Image avatar: $avatar');
     } else {
       avatar = _avatars[_selectedAvatarIndex];
-      print('>>> Emoji avatar: $avatar');
     }
 
-    print('>>> Calling onRegister with: nickname=$nickname, avatar=$avatar');
     widget.onRegister(nickname, avatar);
-    print('>>> onRegister callback completed');
   }
 
   void _showError(String message) {

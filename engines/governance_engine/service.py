@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "proto" / "generated" / "python"))
 from shared.engine_base import EngineConfig, EngineServicer, timing_decorator
 from shared.db import get_pg, put_pg
-from shared.pg_compat import save_governance_decision
+from shared.db_queries import save_governance_decision
 from engines import engines_pb2_grpc
 from engines import engines_pb2
 from common import common_pb2

@@ -60,7 +60,7 @@ class TestAnchorMeta:
         if not db_available:
             pytest.skip("数据库不可用")
 
-        from shared.pg_compat import save_anchor_meta, get_anchor_meta
+        from shared.db_queries import save_anchor_meta, get_anchor_meta
 
         anchor_id = f"a_{unique_id}"
         assert save_anchor_meta(anchor_id, "测试文本", ["测试话题"], 0.8, "user")
@@ -77,7 +77,7 @@ class TestAnchorMeta:
         if not db_available:
             pytest.skip("数据库不可用")
 
-        from shared.pg_compat import get_anchor_meta
+        from shared.db_queries import get_anchor_meta
         meta = get_anchor_meta("a_nonexistent_12345")
         assert meta is None
 
@@ -86,7 +86,7 @@ class TestAnchorMeta:
         if not db_available:
             pytest.skip("数据库不可用")
 
-        from shared.pg_compat import save_anchor_meta, get_anchor_meta_batch
+        from shared.db_queries import save_anchor_meta, get_anchor_meta_batch
 
         ids = [f"a_batch_{unique_id}_{i}" for i in range(3)]
         for aid in ids:
@@ -101,7 +101,7 @@ class TestAnchorMeta:
         if not db_available:
             pytest.skip("数据库不可用")
 
-        from shared.pg_compat import save_anchor_meta, get_anchor_meta
+        from shared.db_queries import save_anchor_meta, get_anchor_meta
 
         anchor_id = f"a_upsert_{unique_id}"
         save_anchor_meta(anchor_id, "原文本", ["topic1"], 0.5, "user")
@@ -125,7 +125,7 @@ class TestReactionEvent:
         if not db_available:
             pytest.skip("数据库不可用")
 
-        from shared.pg_compat import (
+        from shared.db_queries import (
             save_anchor_meta, save_reaction_event,
             count_reactions_batch,
         )
@@ -152,7 +152,7 @@ class TestReactionEvent:
         if not db_available:
             pytest.skip("数据库不可用")
 
-        from shared.pg_compat import save_anchor_meta, save_reaction_event
+        from shared.db_queries import save_anchor_meta, save_reaction_event
 
         anchor_id = f"a_chain_{unique_id}"
         save_anchor_meta(anchor_id, "测试锚点", ["测试"], 0.5, "user")
@@ -208,7 +208,7 @@ class TestGovernanceDecision:
         if not db_available:
             pytest.skip("数据库不可用")
 
-        from shared.pg_compat import save_governance_decision
+        from shared.db_queries import save_governance_decision
 
         content_id = f"a_gov_{unique_id}"
         result = save_governance_decision({
@@ -235,7 +235,7 @@ class TestUserContext:
         if not db_available:
             pytest.skip("数据库不可用")
 
-        from shared.pg_compat import save_user_context, load_all_user_contexts
+        from shared.db_queries import save_user_context, load_all_user_contexts
 
         user_id = f"ctx_{unique_id}"
         context = {
@@ -264,7 +264,7 @@ class TestReactionCounts:
         if not db_available:
             pytest.skip("数据库不可用")
 
-        from shared.pg_compat import (
+        from shared.db_queries import (
             save_anchor_meta, save_reaction_event,
             get_reaction_counts_by_type,
         )

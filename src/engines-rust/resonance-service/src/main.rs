@@ -135,7 +135,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Resonance Service 启动在 0.0.0.0:{}", port);
 
-    // 使用简易 HTTP 服务器 (避免 gRPC 构建复杂度)
+    // GET /health
+    let health = warp::get()
+        .and(warp::path("health"))
+        .and(warp::path::end())
+        .map(|| {
+            warp::reply::json(&serde_json::json!({"status": "ok"}))
+        });
+
+    // POST /compute
     let route = warp::post()
         .and(warp::path("compute"))
         .and(warp::body::bytes().map(|bytes: bytes::Bytes| {
@@ -143,7 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }))
         .and_then(handle_compute);
 
-    warp::serve(route)
+    warp::serve(health.or(route))
         .run(([0, 0, 0, 0], port))
         .await;
 

@@ -24,6 +24,13 @@ impl GovernanceClient {
         Ok(Self { inner })
     }
 
+    pub async fn check_health(&mut self) -> bool {
+        let req = tonic::Request::new(super::super::proto::engines::CheckMarkCredibilityRequest {
+            marker_token_hash: String::new(),
+        });
+        self.inner.check_mark_credibility(req).await.is_ok()
+    }
+
     pub async fn evaluate_content(
         &mut self,
         req: EvaluateContentRequest,
@@ -60,7 +67,8 @@ impl GovernanceClient {
         });
 
         let response = self.inner.evaluate_content(request).await?.into_inner();
-        let decision = response.decision.unwrap();
+        let decision = response.decision
+            .ok_or_else(|| ApiError::Internal("治理引擎返回空决策".into()))?;
 
         let level_str = match decision.level() {
             GovernanceLevel::L0Normal => "L0_正常",

@@ -6,6 +6,7 @@ members = [
     "governance",
     "anchor_replay",
     "resonance-service",
+    "governance-service",
 ]
 
 [workspace.package]

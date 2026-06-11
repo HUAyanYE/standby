@@ -23,6 +23,16 @@ impl ResonanceClient {
         Ok(Self { inner })
     }
 
+    pub async fn check_health(&mut self) -> bool {
+        let req = tonic::Request::new(super::super::proto::engines::ListReactionsRequest {
+            anchor_id: String::new(),
+            page: 1,
+            page_size: 1,
+            filter_type: String::new(),
+        });
+        self.inner.list_reactions(req).await.is_ok()
+    }
+
     pub async fn process_reaction(
         &mut self,
         user_id: &str,
@@ -130,7 +140,8 @@ impl ResonanceClient {
         let response = self.inner.get_reaction_distribution(request).await?.into_inner();
 
         if response.found {
-            let dist = response.distribution.unwrap();
+            let dist = response.distribution
+                .ok_or_else(|| ApiError::Internal("共鸣引擎返回空分布数据".into()))?;
             Ok(ReactionDistribution {
                 resonance_count: dist.resonance_count,
                 neutral_count: dist.neutral_count,

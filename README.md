@@ -53,7 +53,7 @@ cd standby_app && flutter run
 
 | 服务 | 地址 |
 |------|------|
-| API 网关 | `http://localhost:8080` (待实现) |
+| API 网关 | `http://localhost:8080` |
 | PostgreSQL | `localhost:5432` |
 | Dragonfly | `localhost:6379` |
 | NATS | `localhost:4222` |

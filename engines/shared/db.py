@@ -71,7 +71,7 @@ def _init_pg_pool():
             port=db_cfg.get("port", 5432),
             dbname=db_cfg.get("database", "standby"),
             user=db_cfg.get("user", "standby"),
-            password=db_cfg.get("password", "standby_dev_password"),
+            password=db_cfg.get("password") or os.environ.get("POSTGRES_PASSWORD", ""),
         )
         logger.info(f"PG 连接池初始化成功 (from engines.yaml, min={PG_POOL_MIN}, max={PG_POOL_MAX})")
     except Exception as e:

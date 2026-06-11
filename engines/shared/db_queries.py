@@ -1,11 +1,10 @@
 """
-PostgreSQL 兼容层 — 替代 MongoDB 操作
+PostgreSQL 数据库查询层
 
-提供类似 MongoDB 的接口，但底层使用 PostgreSQL。
-用于渐进式迁移，减少引擎代码改动。
+提供引擎通用的数据库操作函数。
 
 使用方式:
-    from shared.pg_compat import get_anchor_meta, save_anchor_meta, count_reactions
+    from shared.db_queries import get_anchor_meta, save_anchor_meta, count_reactions
 
     # 查询锚点元数据
     meta = get_anchor_meta(anchor_id)
@@ -25,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_anchor_meta(anchor_id: str) -> Optional[Dict[str, Any]]:
-    """获取锚点元数据 (替代 mongo.anchor_metadata.find_one)"""
+    """获取锚点元数据"""
     from shared.db import get_pg, put_pg
 
     try:
@@ -55,7 +54,7 @@ def get_anchor_meta(anchor_id: str) -> Optional[Dict[str, Any]]:
 
 
 def get_anchor_meta_batch(anchor_ids: List[str]) -> Dict[str, Dict[str, Any]]:
-    """批量获取锚点元数据 (替代 mongo.anchor_metadata.find)"""
+    """批量获取锚点元数据"""
     from shared.db import get_pg, put_pg
 
     if not anchor_ids:
@@ -90,7 +89,7 @@ def get_anchor_meta_batch(anchor_ids: List[str]) -> Dict[str, Dict[str, Any]]:
 
 def save_anchor_meta(anchor_id: str, text: str, topics: List[str],
                      quality_score: float = 0.0, anchor_type: str = "user") -> bool:
-    """保存锚点元数据 (替代 mongo.anchor_metadata.update_one)"""
+    """保存锚点元数据"""
     from shared.db import get_pg, put_pg
 
     try:
@@ -112,7 +111,7 @@ def save_anchor_meta(anchor_id: str, text: str, topics: List[str],
 
 
 def count_reactions_batch(anchor_ids: List[str]) -> Dict[str, int]:
-    """批量统计反应数 (替代 mongo.reactions.aggregate)"""
+    """批量统计反应数"""
     from shared.db import get_pg, put_pg
 
     if not anchor_ids:
@@ -137,7 +136,7 @@ def count_reactions_batch(anchor_ids: List[str]) -> Dict[str, int]:
 
 
 def save_reaction_event(reaction_data: Dict[str, Any]) -> bool:
-    """保存反应事件 (替代 mongo.reactions.insert_one)"""
+    """保存反应事件"""
     from shared.db import get_pg, put_pg
 
     try:
@@ -196,7 +195,7 @@ def save_reaction_event(reaction_data: Dict[str, Any]) -> bool:
 
 
 def save_governance_decision(decision_data: Dict[str, Any]) -> bool:
-    """保存治理决策 (替代 mongo.governance_logs.insert_one)"""
+    """保存治理决策"""
     from shared.db import get_pg, put_pg
 
     try:
@@ -223,7 +222,7 @@ def save_governance_decision(decision_data: Dict[str, Any]) -> bool:
 
 
 def get_reaction_counts_by_type(anchor_id: str) -> Dict[str, int]:
-    """按反应类型统计 (替代 mongo.reactions.aggregate by reaction_type)
+    """按反应类型统计
 
     Returns: dict with keys: resonance_count, neutral_count, opposition_count,
              unexperienced_count, harmful_count, total_count
@@ -334,7 +333,7 @@ def load_all_user_contexts() -> Dict[str, Dict[str, Any]]:
 
 
 def find_resonance_reaction_users(anchor_id: str, exclude_user_id: str) -> List[str]:
-    """找到在同一锚点上有共鸣的其他用户 (替代 mongo.reactions.find)"""
+    """找到在同一锚点上有共鸣的其他用户"""
     from shared.db import get_pg, put_pg
 
     try:
@@ -354,7 +353,7 @@ def find_resonance_reaction_users(anchor_id: str, exclude_user_id: str) -> List[
 
 def list_reactions_paginated(anchor_id: str, filter_type: str = None,
                              offset: int = 0, limit: int = 20) -> List[Dict[str, Any]]:
-    """分页查询反应 (替代 mongo.reactions.find with sort/skip/limit)"""
+    """分页查询反应"""
     from shared.db import get_pg, put_pg
 
     try:
@@ -380,14 +379,14 @@ def list_reactions_paginated(anchor_id: str, filter_type: str = None,
         pg.commit(); put_pg(pg)
 
         return [{
-            "_id": row[0],
+            "id": row[0],
             "user_id": row[1],
             "anchor_id": row[2],
             "reaction_type": row[3],
             "emotion_word": row[4],
             "opinion_text": row[5],
             "resonance_value": row[6],
-            "timestamp": row[7].timestamp() if row[7] else 0,
+            "created_at": row[7].timestamp() if row[7] else 0,
         } for row in rows]
     except Exception as e:
         logger.error(f"分页查询反应失败: {e}")
@@ -395,7 +394,7 @@ def list_reactions_paginated(anchor_id: str, filter_type: str = None,
 
 
 def count_reactions_filtered(anchor_id: str, filter_type: str = None) -> int:
-    """统计反应数量 (替代 mongo.reactions.count_documents)"""
+    """统计反应数量"""
     from shared.db import get_pg, put_pg
 
     try:

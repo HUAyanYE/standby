@@ -28,13 +28,9 @@ httpx>=0.25
 
 # 数据库
 psycopg2-binary>=2.9
-pymongo>=4.6
 
 # NATS
 nats-py>=2.6
-
-# 任务队列
-celery>=5.3
 
 # 工具
 python-dateutil>=2.8

@@ -28,7 +28,7 @@ from shared.engine_base import (
     vector_to_bytes, bytes_to_vector,
 )
 from shared.db import get_pg, put_pg
-from shared.pg_compat import get_anchor_meta, get_anchor_meta_batch, save_anchor_meta, count_reactions_batch
+from shared.db_queries import get_anchor_meta, get_anchor_meta_batch, save_anchor_meta, count_reactions_batch
 
 # NATS 事件
 from shared.nats_client import NATSClient, EventBuilder
@@ -225,86 +225,82 @@ class AnchorEngineServicer(EngineServicer):
         page_size = min(50, max(1, request.page_size)) if request.page_size > 0 else 20
         offset = (page - 1) * page_size
 
-        try:
-            pg = get_pg()
-            cur = pg.cursor()
+        pg = get_pg()
+        cur = pg.cursor()
 
-            # 查总数
-            if request.topic_filter:
-                # 批量获取元数据再过滤 (替代 N+1 逐个查询)
-                cur.execute("SELECT anchor_id, created_at FROM anchor_vectors ORDER BY created_at DESC")
-                all_rows = cur.fetchall()
-                put_pg(pg)
+        # 查总数
+        if request.topic_filter:
+            # 批量获取元数据再过滤 (替代 N+1 逐个查询)
+            cur.execute("SELECT anchor_id, created_at FROM anchor_vectors ORDER BY created_at DESC")
+            all_rows = cur.fetchall()
+            put_pg(pg)
 
-                # 批量获取所有元数据
-                all_ids = [row[0] for row in all_rows]
-                meta_map = get_anchor_meta_batch(all_ids)
+            # 批量获取所有元数据
+            all_ids = [row[0] for row in all_rows]
+            meta_map = get_anchor_meta_batch(all_ids)
 
-                filtered = []
-                for row in all_rows:
-                    aid = row[0]
-                    meta = meta_map.get(aid)
-                    if meta and request.topic_filter in meta.get("topics", []):
-                        filtered.append((aid, row[1], meta))
-                total_count = len(filtered)
-                page_rows = filtered[offset:offset + page_size]
-            else:
-                cur.execute("SELECT COUNT(*) FROM anchor_vectors")
-                total_count = cur.fetchone()[0]
-                cur.execute("""
-                    SELECT anchor_id, created_at FROM anchor_vectors
-                    ORDER BY created_at DESC
-                    LIMIT %s OFFSET %s
-                """, (page_size, offset))
-                page_rows = [(r[0], r[1], None) for r in cur.fetchall()]
-
-            # 批量获取元数据和反应数 (替代 N+1 逐个查询)
-            anchor_ids = [row[0] for row in page_rows]
-            meta_map = get_anchor_meta_batch(anchor_ids)
-
-            # 批量获取反应数
-            reaction_counts = count_reactions_batch(anchor_ids)
-
-            anchors = []
-            for row in page_rows:
+            filtered = []
+            for row in all_rows:
                 aid = row[0]
-                created_ts = int(row[1].timestamp()) if row[1] else 0
-                meta = row[2] if row[2] else meta_map.get(aid)
+                meta = meta_map.get(aid)
+                if meta and request.topic_filter in meta.get("topics", []):
+                    filtered.append((aid, row[1], meta))
+            total_count = len(filtered)
+            page_rows = filtered[offset:offset + page_size]
+        else:
+            cur.execute("SELECT COUNT(*) FROM anchor_vectors")
+            total_count = cur.fetchone()[0]
+            cur.execute("""
+                SELECT anchor_id, created_at FROM anchor_vectors
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            """, (page_size, offset))
+            page_rows = [(r[0], r[1], None) for r in cur.fetchall()]
 
-                # 跳过没有元数据的锚点
-                if meta is None:
-                    logger.debug(f"锚点 {aid} 没有元数据，跳过")
-                    continue
-                
-                # 从批量结果获取反应数
-                reaction_count = reaction_counts.get(aid, 0)
+        # 批量获取元数据和反应数 (替代 N+1 逐个查询)
+        anchor_ids = [row[0] for row in page_rows]
+        meta_map = get_anchor_meta_batch(anchor_ids)
 
-                # 处理text字段
-                text_content = meta.get("text", "")
-                if not text_content:
-                    logger.debug(f"锚点 {aid} 的text字段为空，跳过")
-                    continue
-                
-                text = text_content[:100]
-                logger.debug(f"锚点 {aid} 的text字段存在，长度: {len(text_content)}")
-                
-                anchors.append(engines_pb2.AnchorSummary(
-                    anchor_id=aid,
-                    text=text,
-                    topics=meta.get("topics", []),
-                    quality_score=meta.get("quality_score", 0.0),
-                    reaction_count=reaction_count,
-                    created_at=created_ts,
-                ))
+        # 批量获取反应数
+        reaction_counts = count_reactions_batch(anchor_ids)
 
-            return engines_pb2.ListAnchorsResponse(
-                anchors=anchors,
-                total_count=total_count,
-                has_more=(offset + page_size < total_count),
-            )
-        except Exception as e:
-            logger.error(f"列出锚点失败: {e}")
-            return engines_pb2.ListAnchorsResponse(anchors=[], total_count=0, has_more=False)
+        anchors = []
+        for row in page_rows:
+            aid = row[0]
+            created_ts = int(row[1].timestamp()) if row[1] else 0
+            meta = row[2] if row[2] else meta_map.get(aid)
+
+            # 跳过没有元数据的锚点
+            if meta is None:
+                logger.debug(f"锚点 {aid} 没有元数据，跳过")
+                continue
+            
+            # 从批量结果获取反应数
+            reaction_count = reaction_counts.get(aid, 0)
+
+            # 处理text字段
+            text_content = meta.get("text", "")
+            if not text_content:
+                logger.debug(f"锚点 {aid} 的text字段为空，跳过")
+                continue
+            
+            text = text_content[:100]
+            logger.debug(f"锚点 {aid} 的text字段存在，长度: {len(text_content)}")
+            
+            anchors.append(engines_pb2.AnchorSummary(
+                anchor_id=aid,
+                text=text,
+                topics=meta.get("topics", []),
+                quality_score=meta.get("quality_score", 0.0),
+                reaction_count=reaction_count,
+                created_at=created_ts,
+            ))
+
+        return engines_pb2.ListAnchorsResponse(
+            anchors=anchors,
+            total_count=total_count,
+            has_more=(offset + page_size < total_count),
+        )
 
     @timing_decorator
     def evaluate_anchor_quality(self, request) -> dict:
