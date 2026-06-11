@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "resonance-service"
+name = "standby-resonance-service"
 path = "src/main.rs"
 
 [dependencies]

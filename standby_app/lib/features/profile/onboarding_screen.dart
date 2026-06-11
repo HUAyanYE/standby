@@ -154,7 +154,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             style: TextStyle(
               fontSize: 18,
               height: 1.8,
-              color: StandbyColors.text1,
+              color: StandbyColors.text,
             ),
             textAlign: TextAlign.center,
           ),

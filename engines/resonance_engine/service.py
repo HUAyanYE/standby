@@ -39,6 +39,7 @@ from engines import engines_pb2
 # 数据结构 (从 v2 算法模块导入)
 from resonance_calculator_v2 import (
     Reaction, Anchor, ReactionType, EmotionWord,
+    ResonanceScore, compute_resonance_value_v2,
 )
 
 # NATS 事件发布
@@ -592,22 +593,33 @@ class ResonanceEngineServicer(EngineServicer):
                 EmotionWord.SHOCK: "震撼",
             }
 
-            result = call_resonance_compute_sync(
-                user_id=request.user_id,
-                anchor_id=request.anchor_id,
-                reaction_type=reaction_type_map.get(reaction.reaction_type, "无感"),
-                opinion_embedding=op_emb.tolist(),
-                anchor_embedding=anchor_data["embedding"].tolist(),
-                existing_embeddings=[],  # Rust 服务使用 pgvector 预计算的 top-k
-                opinion_text=request.opinion_text,
-                emotion_word=emotion_word_map.get(emotion_word) if emotion_word else None,
-            )
-
-            score = ResonanceScore(
-                value=result["value"],
-                components=result["components"],
-            )
-            self.logger.debug("使用 Rust 服务计算共鸣值")
+            try:
+                result = call_resonance_compute_sync(
+                    user_id=request.user_id,
+                    anchor_id=request.anchor_id,
+                    reaction_type=reaction_type_map.get(reaction.reaction_type, "无感"),
+                    opinion_embedding=op_emb.tolist(),
+                    anchor_embedding=anchor_data["embedding"].tolist(),
+                    existing_embeddings=[],
+                    opinion_text=request.opinion_text,
+                    emotion_word=emotion_word_map.get(emotion_word) if emotion_word else None,
+                )
+                score = ResonanceScore(
+                    value=result["value"],
+                    components=result["components"],
+                )
+                self.logger.debug("使用 Rust 服务计算共鸣值")
+            except Exception as rust_err:
+                self.logger.warning(f"Rust 服务调用失败，降级到 Python: {rust_err}")
+                score = compute_resonance_value_v2(
+                    reaction=reaction,
+                    anchor=anchor,
+                    opinion_embedding=op_emb,
+                    anchor_embedding=anchor_data["embedding"],
+                    existing_opinion_embeddings=[],
+                    precomputed_top_k_sims=top_k_sims if top_k_sims else None,
+                    total_existing_count=len(top_k_sims),
+                )
 
             # 6. 存储到 PostgreSQL (含感受链)
             self._save_reaction(

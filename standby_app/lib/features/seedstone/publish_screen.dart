@@ -106,19 +106,17 @@ class _PublishScreenState extends ConsumerState<PublishScreen> {
       }
 
       final result = await _api.createAnchor(
+        sourceTexts: [anchorText],
+        topicHints: _topics.isNotEmpty ? _topics : null,
         modality: modality,
-        textContent: anchorText.isNotEmpty ? anchorText : null,
-        mediaIds: mediaIds.isNotEmpty ? mediaIds : null,
-        topics: _topics,
       );
 
       // 如果有感想，提交反应
       if (feelingText.isNotEmpty && result['anchor_id'] != null) {
         await _api.submitReaction(
           anchorId: result['anchor_id'] as String,
-          reactionType: '共鸣',
-          modality: 'text',
-          textContent: feelingText,
+          reactionType: 1,
+          opinionText: feelingText,
         );
       }
 

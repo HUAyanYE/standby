@@ -53,7 +53,8 @@ case "${MODE}" in
         sleep 5
         
         info "启动 Rust 高性能服务..."
-        ${COMPOSE_CMD} up -d resonance-rust
+        ${COMPOSE_CMD} up -d resonance-rust governance-rust
+        sleep 3
 
         info "启动 AI 引擎..."
         ${COMPOSE_CMD} up -d resonance-engine anchor-engine governance-engine context-engine

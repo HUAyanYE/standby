@@ -93,10 +93,8 @@ class _MeetScreenState extends ConsumerState<MeetScreen> {
     try {
       await _api.submitReaction(
         anchorId: seedstone.seedstoneId,
-        reactionType: '共鸣', // 后端自动推断
-        emotionWord: null,
-        modality: 'text',
-        textContent: opinionText,
+        reactionType: 1,
+        opinionText: opinionText,
       );
 
       // 生成随机匿名身份

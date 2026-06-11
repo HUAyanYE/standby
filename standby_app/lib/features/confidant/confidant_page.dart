@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../shared/services/api_service.dart';
+import '../../shared/services/storage_service.dart';
 import '../../app/theme.dart';
 
 /// 知己页 — 匿名知己列表、共鸣引用
@@ -13,6 +14,7 @@ class ConfidantPage extends ConsumerStatefulWidget {
 
 class _ConfidantPageState extends ConsumerState<ConfidantPage> {
   final _api = ApiService();
+  final _storage = StorageService();
   List<Map<String, dynamic>> _confidants = [];
   bool _loading = true;
 
@@ -26,7 +28,8 @@ class _ConfidantPageState extends ConsumerState<ConfidantPage> {
     setState(() => _loading = true);
 
     try {
-      final data = await _api.getRelationships();
+      final userId = _storage.deviceFingerprint ?? '';
+      final data = await _api.getRelationships(userId);
       final relationships = data['relationships'] as List? ?? [];
       
       setState(() {

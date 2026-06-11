@@ -9,6 +9,8 @@ import '../models/request_status.dart';
 /// 网关端点前缀: /api/v1
 /// 认证: JWT Bearer token + 设备指纹签名
 class ApiService {
+  static final ApiService _instance = ApiService._internal();
+  factory ApiService() => _instance;
   static String? _baseUrlOverride;
 
   static String get _baseUrl {
@@ -26,10 +28,9 @@ class ApiService {
   String? _accessToken;
   String? _deviceFingerprint;
 
-  /// 获取 Dio 实例 (供 MediaService 使用)
   Dio get dio => _dio;
 
-  ApiService()
+  ApiService._internal()
       : _dio = Dio(BaseOptions(
           baseUrl: _baseUrl,
           connectTimeout: const Duration(seconds: 10),
@@ -215,12 +216,31 @@ class ApiService {
     return resp.data;
   }
 
+  /// 获取共鸣踪迹
+  Future<Map<String, dynamic>> getResonanceTraces({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    final params = <String, dynamic>{
+      'page': page,
+      'page_size': pageSize,
+    };
+    final resp = await _dio.get('/api/v1/reactions', queryParameters: params);
+    return resp.data;
+  }
+
   // ============================================================
   // 关系 API
   // ============================================================
 
   /// 查找共鸣对
   Future<Map<String, dynamic>> findResonancePairs(String userId) async {
+    final resp = await _dio.get('/api/v1/relationships/$userId');
+    return resp.data;
+  }
+
+  /// 获取关系列表
+  Future<Map<String, dynamic>> getRelationships(String userId) async {
     final resp = await _dio.get('/api/v1/relationships/$userId');
     return resp.data;
   }

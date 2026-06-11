@@ -104,6 +104,8 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
+      resonance-rust:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python3", "-c", "import grpc; print('ok')"]
       interval: 10s
@@ -146,10 +148,13 @@ services:
       NATS_URL: nats://nats:4222
       DB_POSTGRES: postgres://${POSTGRES_USER:-standby}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-standby}
       LOG_LEVEL: INFO
+      RUST_GOVERNANCE_URL: http://governance-rust:8096
     depends_on:
       postgres:
         condition: service_healthy
       nats:
+        condition: service_healthy
+      governance-rust:
         condition: service_healthy
 
   # 情境感知引擎
