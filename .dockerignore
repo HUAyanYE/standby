@@ -1,0 +1,13 @@
+**/target/
+**/node_modules/
+**/.git/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/standby_app/
+**/docs/
+**/research/
+**/.env
+**/.env.example
+**/*.md
+**/pubspec.lock

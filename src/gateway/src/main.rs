@@ -118,21 +118,21 @@ async fn main() -> anyhow::Result<()> {
         // 锚点路由
         .route("/api/v1/anchors", axum::routing::get(routes::anchors::list_anchors))
         .route("/api/v1/anchors", axum::routing::post(routes::anchors::create_anchor))
-        .route("/api/v1/anchors/{id}", axum::routing::get(routes::anchors::get_anchor))
-        .route("/api/v1/anchors/{id}/memory", axum::routing::get(routes::anchors::get_group_memory))
-        .route("/api/v1/anchors/{id}/chain", axum::routing::get(routes::anchors::get_feeling_chain))
+        .route("/api/v1/anchors/:id", axum::routing::get(routes::anchors::get_anchor))
+        .route("/api/v1/anchors/:id/memory", axum::routing::get(routes::anchors::get_group_memory))
+        .route("/api/v1/anchors/:id/chain", axum::routing::get(routes::anchors::get_feeling_chain))
         // 反应路由
         .route("/api/v1/reactions", axum::routing::get(routes::reactions::list_reactions))
         .route("/api/v1/reactions", axum::routing::post(routes::reactions::create_reaction))
         .route("/api/v1/reactions/batch", axum::routing::post(routes::reactions::create_batch))
-        .route("/api/v1/reactions/distribution/{anchor_id}", axum::routing::get(routes::reactions::get_distribution))
+        .route("/api/v1/reactions/distribution/:anchor_id", axum::routing::get(routes::reactions::get_distribution))
         // 关系路由
         .route("/api/v1/relationships/score", axum::routing::get(routes::reactions::get_relationship_score))
-        .route("/api/v1/relationships/{user_id}", axum::routing::get(routes::reactions::find_resonance_pairs))
+        .route("/api/v1/relationships/:user_id", axum::routing::get(routes::reactions::find_resonance_pairs))
         // 治理路由
         .route("/api/v1/governance/evaluate", axum::routing::post(routes::governance::evaluate_content))
         .route("/api/v1/governance/anomaly", axum::routing::post(routes::governance::detect_anomaly))
-        .route("/api/v1/governance/credibility/{marker_hash}", axum::routing::get(routes::governance::check_credibility))
+        .route("/api/v1/governance/credibility/:marker_hash", axum::routing::get(routes::governance::check_credibility))
         // 情境路由
         .route("/api/v1/context", axum::routing::post(routes::context::submit_context))
         .route("/api/v1/context/weights", axum::routing::get(routes::context::get_weights))

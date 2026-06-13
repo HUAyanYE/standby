@@ -696,7 +696,7 @@ class ResonanceEngineServicer(EngineServicer):
 
     def encode_text(self, request) -> dict:
         """编码文本为向量"""
-        texts = request.texts if hasattr(request, 'texts') else [request]
+        texts = list(request.texts) if hasattr(request, 'texts') else [request]
         vectors = self.encoder.encode(texts)
 
         return {

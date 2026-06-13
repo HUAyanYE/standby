@@ -95,7 +95,18 @@ impl ResonanceService {
                     unexperienced_penalty: score.components.unexperienced_penalty,
                 },
             }),
-            None => Err("反应类型不计入共鸣值".into()),
+            None => Ok(ComputeResonanceResponse {
+                value: 0.0,
+                components: ScoreComponents {
+                    resonance_weight: 0.0,
+                    depth: 0.0,
+                    relevance_raw: 0.0,
+                    relevance_sigmoid: 0.0,
+                    novelty: 0.0,
+                    harmful_penalty: 0.0,
+                    unexperienced_penalty: 0.0,
+                },
+            }),
         }
     }
 }

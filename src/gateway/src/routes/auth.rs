@@ -161,7 +161,7 @@ struct UserRow {
     id: uuid::Uuid,
     internal_token: String,
     device_fingerprint: String,
-    marker_credit: f32,
+    marker_credit: f64,
     trust_level: i16,
-    created_at: chrono::NaiveDateTime,
+    created_at: chrono::DateTime<chrono::Utc>,
 }

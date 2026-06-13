@@ -77,7 +77,12 @@ class AnchorEngineServicer(EngineServicer):
             if not row:
                 return None
 
-            embedding = np.frombuffer(bytes(row[1]), dtype=np.float32).reshape(768) if row[1] else None
+            if isinstance(row[1], str):
+                embedding = np.array([float(x) for x in row[1].strip('[]').split(',')], dtype=np.float32)
+            elif row[1] is not None:
+                embedding = np.frombuffer(bytes(row[1]), dtype=np.float32).reshape(768)
+            else:
+                embedding = None
 
             # 从 PostgreSQL 获取元数据
             meta = get_anchor_meta(anchor_id)
@@ -109,7 +114,7 @@ class AnchorEngineServicer(EngineServicer):
                 VALUES (%s, %s::vector)
                 ON CONFLICT (anchor_id) DO UPDATE SET vector = EXCLUDED.vector
             """, (anchor_id, str(embedding.tolist())))
-            put_pg(pg)
+            pg.commit(); put_pg(pg)
 
             # PostgreSQL: 元数据
             save_anchor_meta(anchor_id, text, topics, quality_score, anchor_type)
@@ -176,6 +181,7 @@ class AnchorEngineServicer(EngineServicer):
             )
             return engines_pb2.GenerateAnchorResponse(
                 success=True,
+                anchor_id=anchor_id,
                 anchor=anchor_obj,
                 quality_score=result.get("quality", {}).get("overall", 0),
             )
@@ -287,7 +293,7 @@ class AnchorEngineServicer(EngineServicer):
             text = text_content[:100]
             logger.debug(f"锚点 {aid} 的text字段存在，长度: {len(text_content)}")
             
-            anchors.append(engines_pb2.AnchorSummary(
+            anchors.append(common_pb2.AnchorSummary(
                 anchor_id=aid,
                 text=text,
                 topics=meta.get("topics", []),
@@ -424,6 +430,7 @@ class AnchorEngineServicer(EngineServicer):
         return {
             "found": True,
             "anchor_id": anchor_id,
+            "text": anchor.get("text", ""),
             "topics": anchor.get("topics", []),
             "anchor_type": anchor.get("anchor_type", "platform_initial"),
             "quality_score": anchor.get("quality_score", 0.0),
