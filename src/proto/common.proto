@@ -45,19 +45,19 @@ message AnchorSummary {
 
 enum ReactionType {
     REACTION_TYPE_UNSPECIFIED = 0;
-    RESONANCE = 1;      // 共鸣
-    NEUTRAL = 2;        // 无感
-    OPPOSITION = 3;     // 反对
-    UNEXPERIENCED = 4;  // 未体验
-    HARMFUL = 5;        // 有害
+    RESONANCE = 1;          // 共鸣
+    INDIFFERENCE = 2;       // 无感 (与 Rust ReactionType::Indifference 对齐)
+    OPPOSITION = 3;         // 反对
+    UNEXPERIENCED = 4;      // 未体验
+    HARMFUL = 5;            // 有害
 }
 
 enum EmotionWord {
     EMOTION_WORD_UNSPECIFIED = 0;
-    EMPATHY = 1;        // 同感
-    TRIGGER = 2;        // 触发
-    INSIGHT = 3;        // 启发
-    SHOCK = 4;          // 震撼
+    SYMPATHY = 1;           // 同感 (与 Rust EmotionWord::Sympathy 对齐)
+    TRIGGER = 2;            // 触发
+    INSIGHT = 3;            // 启发
+    SHOCK = 4;              // 震撼
 }
 
 message ReactionSummary {

@@ -204,6 +204,7 @@ class ApiService {
     required int reactionType,
     String? opinionText,
     int? emotionWord,
+    String? parentReactionId,
   }) async {
     final data = <String, dynamic>{
       'anchor_id': anchorId,
@@ -211,6 +212,7 @@ class ApiService {
     };
     if (opinionText != null) data['opinion_text'] = opinionText;
     if (emotionWord != null) data['emotion_word'] = emotionWord;
+    if (parentReactionId != null) data['parent_reaction_id'] = parentReactionId;
 
     final resp = await _dio.post('/api/v1/reactions', data: data);
     return _unwrap(resp.data);
@@ -239,7 +241,7 @@ class ApiService {
     return _unwrap(resp.data);
   }
 
-  /// 获取共鸣踪迹
+  /// 获取共鸣踪迹 (我与他人的共鸣关系)
   Future<Map<String, dynamic>> getResonanceTraces({
     int page = 1,
     int pageSize = 20,
@@ -248,7 +250,7 @@ class ApiService {
       'page': page,
       'page_size': pageSize,
     };
-    final resp = await _dio.get('/api/v1/reactions', queryParameters: params);
+    final resp = await _dio.get('/api/v1/relationships/traces', queryParameters: params);
     return _unwrap(resp.data);
   }
 

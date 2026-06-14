@@ -1,0 +1,514 @@
+"""
+PostgreSQL 数据库查询层
+
+提供引擎通用的数据库操作函数。
+所有函数使用 try/finally 确保连接始终归还到池。
+
+使用方式:
+    from standby_common.db_queries import get_anchor_meta, save_anchor_meta, count_reactions
+
+    meta = get_anchor_meta(anchor_id)
+    save_anchor_meta(anchor_id, text, topics, quality_score)
+    counts = count_reactions_batch(anchor_ids)
+"""
+
+import json
+import logging
+from typing import Optional, List, Dict, Any
+
+logger = logging.getLogger(__name__)
+
+
+def get_anchor_meta(anchor_id: str) -> Optional[Dict[str, Any]]:
+    """获取锚点元数据"""
+    from standby_common.db import get_pg, put_pg
+
+    pg = get_pg()
+    try:
+        cur = pg.cursor()
+        cur.execute("""
+            SELECT text_content, topics, quality_score, source, created_at
+            FROM anchors WHERE id = %s
+        """, (anchor_id,))
+        row = cur.fetchone()
+        pg.commit()
+
+        if not row:
+            return None
+
+        return {
+            "anchor_id": anchor_id,
+            "text": row[0] or "",
+            "topics": json.loads(row[1]) if row[1] else [],
+            "quality_score": row[2] or 0.0,
+            "anchor_type": row[3] or "user",
+            "created_at": row[4].timestamp() if row[4] else 0,
+        }
+    except Exception as e:
+        logger.error(f"获取锚点元数据失败: {e}")
+        try:
+            pg.rollback()
+        except Exception:
+            pass
+        return None
+    finally:
+        put_pg(pg)
+
+
+def get_anchor_meta_batch(anchor_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """批量获取锚点元数据"""
+    from standby_common.db import get_pg, put_pg
+
+    if not anchor_ids:
+        return {}
+
+    pg = get_pg()
+    try:
+        cur = pg.cursor()
+        placeholders = ",".join(["%s"] * len(anchor_ids))
+        cur.execute(f"""
+            SELECT id, text_content, topics, quality_score, source, created_at
+            FROM anchors WHERE id IN ({placeholders})
+        """, anchor_ids)
+        rows = cur.fetchall()
+        pg.commit()
+
+        result = {}
+        for row in rows:
+            result[row[0]] = {
+                "anchor_id": row[0],
+                "text": row[1] or "",
+                "topics": json.loads(row[2]) if row[2] else [],
+                "quality_score": row[3] or 0.0,
+                "anchor_type": row[4] or "user",
+                "created_at": row[5].timestamp() if row[5] else 0,
+            }
+        return result
+    except Exception as e:
+        logger.error(f"批量获取锚点元数据失败: {e}")
+        try:
+            pg.rollback()
+        except Exception:
+            pass
+        return {}
+    finally:
+        put_pg(pg)
+
+
+def save_anchor_meta(anchor_id: str, text: str, topics: List[str],
+                     quality_score: float = 0.0, anchor_type: str = "user",
+                     parent_anchor_id: Optional[str] = None) -> bool:
+    """保存锚点元数据"""
+    from standby_common.db import get_pg, put_pg
+
+    pg = get_pg()
+    try:
+        cur = pg.cursor()
+        cur.execute("""
+            INSERT INTO anchors (id, text_content, topics, source, quality_score, modality, parent_anchor_id)
+            VALUES (%s, %s, %s, %s, %s, 'text', %s)
+            ON CONFLICT (id) DO UPDATE SET
+                text_content = EXCLUDED.text_content,
+                topics = EXCLUDED.topics,
+                quality_score = EXCLUDED.quality_score,
+                parent_anchor_id = EXCLUDED.parent_anchor_id
+        """, (anchor_id, text, json.dumps(topics), anchor_type, quality_score, parent_anchor_id))
+        pg.commit()
+        return True
+    except Exception as e:
+        logger.error(f"保存锚点元数据失败: {e}")
+        try:
+            pg.rollback()
+        except Exception:
+            pass
+        return False
+    finally:
+        put_pg(pg)
+
+
+def get_feeling_chain_anchors(parent_anchor_id: str) -> List[Dict[str, Any]]:
+    """获取感受链条目（子心物列表）"""
+    from standby_common.db import get_pg, put_pg
+
+    pg = get_pg()
+    try:
+        cur = pg.cursor()
+        cur.execute("""
+            SELECT a.id, a.text_content, a.topics, a.quality_score, a.created_at,
+                   r.user_id, r.reaction_type, r.emotion_word, r.resonance_value
+            FROM anchors a
+            JOIN reactions r ON r.anchor_id = a.id
+            WHERE a.parent_anchor_id = %s
+            ORDER BY a.created_at DESC
+        """, (parent_anchor_id,))
+        rows = cur.fetchall()
+        pg.commit()
+
+        results = []
+        for row in rows:
+            results.append({
+                "anchor_id": row[0],
+                "text_content": row[1] or "",
+                "topics": json.loads(row[2]) if row[2] else [],
+                "quality_score": row[3] or 0.0,
+                "created_at": row[4].timestamp() if row[4] else 0,
+                "user_id": row[5] or "",
+                "reaction_type": row[6] or "",
+                "emotion_word": row[7] or "",
+                "resonance_value": row[8] or 0.0,
+            })
+        return results
+    except Exception as e:
+        logger.error(f"获取感受链失败: {e}")
+        try:
+            pg.rollback()
+        except Exception:
+            pass
+        return []
+    finally:
+        put_pg(pg)
+
+
+def count_reactions_batch(anchor_ids: List[str]) -> Dict[str, int]:
+    """批量统计反应数"""
+    from standby_common.db import get_pg, put_pg
+
+    if not anchor_ids:
+        return {}
+
+    pg = get_pg()
+    try:
+        cur = pg.cursor()
+        placeholders = ",".join(["%s"] * len(anchor_ids))
+        cur.execute(f"""
+            SELECT anchor_id, COUNT(*) as cnt
+            FROM reactions WHERE anchor_id IN ({placeholders})
+            GROUP BY anchor_id
+        """, anchor_ids)
+        rows = cur.fetchall()
+        pg.commit()
+
+        return {row[0]: row[1] for row in rows}
+    except Exception as e:
+        logger.error(f"统计反应数失败: {e}")
+        try:
+            pg.rollback()
+        except Exception:
+            pass
+        return {}
+    finally:
+        put_pg(pg)
+
+
+def save_reaction_event(reaction_data: Dict[str, Any]) -> bool:
+    """保存反应事件"""
+    from standby_common.db import get_pg, put_pg
+
+    pg = get_pg()
+    try:
+        cur = pg.cursor()
+
+        parent_reaction_id = reaction_data.get("parent_reaction_id")
+        depth = 0
+        root_reaction_id = None
+
+        if parent_reaction_id:
+            cur.execute("""
+                SELECT depth, root_reaction_id FROM reactions WHERE id = %s
+            """, (parent_reaction_id,))
+            parent_row = cur.fetchone()
+            if parent_row:
+                depth = parent_row[0] + 1
+                root_reaction_id = parent_row[1] or parent_reaction_id
+            else:
+                parent_reaction_id = None
+
+        cur.execute("""
+            INSERT INTO reactions (user_id, anchor_id, reaction_type, emotion_word,
+                                   modality, text_content, resonance_value,
+                                   parent_reaction_id, depth, root_reaction_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            reaction_data.get("user_id"),
+            reaction_data.get("anchor_id"),
+            reaction_data.get("reaction_type"),
+            reaction_data.get("emotion_word"),
+            reaction_data.get("modality", "text"),
+            reaction_data.get("text_content"),
+            reaction_data.get("resonance_value"),
+            parent_reaction_id,
+            depth,
+            root_reaction_id,
+        ))
+
+        new_id = cur.fetchone()[0]
+        if not root_reaction_id:
+            cur.execute("""
+                UPDATE reactions SET root_reaction_id = %s WHERE id = %s
+            """, (new_id, new_id))
+
+        pg.commit()
+        return True
+    except Exception as e:
+        logger.error(f"保存反应事件失败: {e}")
+        try:
+            pg.rollback()
+        except Exception:
+            pass
+        return False
+    finally:
+        put_pg(pg)
+
+
+def save_governance_decision(decision_data: Dict[str, Any]) -> bool:
+    """保存治理决策"""
+    from standby_common.db import get_pg, put_pg
+
+    pg = get_pg()
+    try:
+        cur = pg.cursor()
+        cur.execute("""
+            INSERT INTO governance_decisions (content_id, content_type, level,
+                                              harmful_weight, marker_avg_credit, reason, actions)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (
+            decision_data.get("content_id"),
+            decision_data.get("content_type", "anchor"),
+            decision_data.get("level", "L0_NORMAL"),
+            decision_data.get("harmful_weight", 0.0),
+            decision_data.get("marker_avg_credit", 0.5),
+            decision_data.get("reason", ""),
+            decision_data.get("actions", []),
+        ))
+        pg.commit()
+        return True
+    except Exception as e:
+        logger.error(f"保存治理决策失败: {e}")
+        try:
+            pg.rollback()
+        except Exception:
+            pass
+        return False
+    finally:
+        put_pg(pg)
+
+
+def get_reaction_counts_by_type(anchor_id: str) -> Dict[str, int]:
+    """按反应类型统计"""
+    from standby_common.db import get_pg, put_pg
+
+    pg = get_pg()
+    try:
+        cur = pg.cursor()
+        cur.execute("""
+            SELECT reaction_type, COUNT(*) as cnt
+            FROM reactions WHERE anchor_id = %s
+            GROUP BY reaction_type
+        """, (anchor_id,))
+        rows = cur.fetchall()
+        pg.commit()
+
+        counts = {row[0]: row[1] for row in rows}
+        total = sum(counts.values())
+        return {
+            "resonance_count": counts.get("共鸣", 0),
+            "neutral_count": counts.get("无感", 0),
+            "opposition_count": counts.get("反对", 0),
+            "unexperienced_count": counts.get("未体验", 0),
+            "harmful_count": counts.get("有害", 0),
+            "total_count": total,
+        }
+    except Exception as e:
+        logger.error(f"按类型统计反应失败: {e}")
+        try:
+            pg.rollback()
+        except Exception:
+            pass
+        return {
+            "resonance_count": 0, "neutral_count": 0,
+            "opposition_count": 0, "unexperienced_count": 0,
+            "harmful_count": 0, "total_count": 0,
+        }
+    finally:
+        put_pg(pg)
+
+
+def save_user_context(user_id: str, context_data: Dict[str, Any]) -> bool:
+    """保存用户情境状态"""
+    from standby_common.db import get_pg, put_pg
+
+    pg = get_pg()
+    try:
+        cur = pg.cursor()
+        cur.execute("""
+            INSERT INTO user_contexts (user_id, scene_type, mood_hint, attention_level,
+                                       device, context_timestamp, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (user_id) DO UPDATE SET
+                scene_type = EXCLUDED.scene_type,
+                mood_hint = EXCLUDED.mood_hint,
+                attention_level = EXCLUDED.attention_level,
+                device = EXCLUDED.device,
+                context_timestamp = EXCLUDED.context_timestamp,
+                updated_at = NOW()
+        """, (
+            user_id,
+            context_data.get("scene_type", ""),
+            context_data.get("mood_hint", ""),
+            context_data.get("attention_level", ""),
+            context_data.get("device", 0),
+            context_data.get("timestamp", 0),
+        ))
+        pg.commit()
+        return True
+    except Exception as e:
+        logger.error(f"保存用户情境失败: {e}")
+        try:
+            pg.rollback()
+        except Exception:
+            pass
+        return False
+    finally:
+        put_pg(pg)
+
+
+def load_all_user_contexts() -> Dict[str, Dict[str, Any]]:
+    """加载所有用户情境状态"""
+    from standby_common.db import get_pg, put_pg
+
+    pg = get_pg()
+    try:
+        cur = pg.cursor()
+        cur.execute("""
+            SELECT user_id, scene_type, mood_hint, attention_level,
+                   device, context_timestamp
+            FROM user_contexts
+        """)
+        rows = cur.fetchall()
+        pg.commit()
+
+        result = {}
+        for row in rows:
+            result[row[0]] = {
+                "scene_type": row[1] or "",
+                "mood_hint": row[2] or "",
+                "attention_level": row[3] or "",
+                "device": row[4] or 0,
+                "timestamp": row[5] or 0,
+            }
+        return result
+    except Exception as e:
+        logger.error(f"加载用户情境失败: {e}")
+        try:
+            pg.rollback()
+        except Exception:
+            pass
+        return {}
+    finally:
+        put_pg(pg)
+
+
+def find_resonance_reaction_users(anchor_id: str, exclude_user_id: str) -> List[str]:
+    """找到在同一锚点上有共鸣的其他用户"""
+    from standby_common.db import get_pg, put_pg
+
+    pg = get_pg()
+    try:
+        cur = pg.cursor()
+        cur.execute("""
+            SELECT DISTINCT user_id FROM reactions
+            WHERE anchor_id = %s AND reaction_type = '共鸣' AND user_id != %s
+        """, (anchor_id, exclude_user_id))
+        rows = cur.fetchall()
+        pg.commit()
+
+        return [row[0] for row in rows]
+    except Exception as e:
+        logger.error(f"查找共鸣用户失败: {e}")
+        try:
+            pg.rollback()
+        except Exception:
+            pass
+        return []
+    finally:
+        put_pg(pg)
+
+
+def list_reactions_paginated(anchor_id: str, filter_type: Optional[str] = None,
+                             offset: int = 0, limit: int = 20) -> List[Dict[str, Any]]:
+    """分页查询反应"""
+    from standby_common.db import get_pg, put_pg
+
+    pg = get_pg()
+    try:
+        cur = pg.cursor()
+        if filter_type:
+            cur.execute("""
+                SELECT id, user_id, anchor_id, reaction_type, emotion_word,
+                       text_content, resonance_value, created_at
+                FROM reactions WHERE anchor_id = %s AND reaction_type = %s
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            """, (anchor_id, filter_type, limit, offset))
+        else:
+            cur.execute("""
+                SELECT id, user_id, anchor_id, reaction_type, emotion_word,
+                       text_content, resonance_value, created_at
+                FROM reactions WHERE anchor_id = %s
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            """, (anchor_id, limit, offset))
+        rows = cur.fetchall()
+        pg.commit()
+
+        return [{
+            "id": row[0],
+            "user_id": row[1],
+            "anchor_id": row[2],
+            "reaction_type": row[3],
+            "emotion_word": row[4],
+            "opinion_text": row[5],
+            "resonance_value": row[6],
+            "created_at": row[7].timestamp() if row[7] else 0,
+        } for row in rows]
+    except Exception as e:
+        logger.error(f"分页查询反应失败: {e}")
+        try:
+            pg.rollback()
+        except Exception:
+            pass
+        return []
+    finally:
+        put_pg(pg)
+
+
+def count_reactions_filtered(anchor_id: str, filter_type: Optional[str] = None) -> int:
+    """统计反应数量"""
+    from standby_common.db import get_pg, put_pg
+
+    pg = get_pg()
+    try:
+        cur = pg.cursor()
+        if filter_type:
+            cur.execute("""
+                SELECT COUNT(*) FROM reactions
+                WHERE anchor_id = %s AND reaction_type = %s
+            """, (anchor_id, filter_type))
+        else:
+            cur.execute("""
+                SELECT COUNT(*) FROM reactions WHERE anchor_id = %s
+            """, (anchor_id,))
+        count = cur.fetchone()[0]
+        pg.commit()
+
+        return count
+    except Exception as e:
+        logger.error(f"统计反应数量失败: {e}")
+        try:
+            pg.rollback()
+        except Exception:
+            pass
+        return 0
+    finally:
+        put_pg(pg)

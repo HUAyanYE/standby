@@ -106,20 +106,18 @@ services:
   resonance-engine:
     build:
       context: .
-      dockerfile: engines/Dockerfile.python
-      args:
-        ENGINE_NAME: resonance_engine
+      dockerfile: engines/Dockerfile.resonance
     image: standby-resonance:latest
     container_name: standby-resonance
     ports:
-      - "8091:8091"
+      - "127.0.0.1:8091:8091"
     environment:
       NATS_URL: nats://nats:4222
       DB_POSTGRES: postgres://${POSTGRES_USER:-standby}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-standby}
       LOG_LEVEL: INFO
       RUST_RESONANCE_URL: http://resonance-rust:8095
     volumes:
-      - ./engines/shared/models:/app/engines/shared/models
+      - ./engines/standby_common/models:/app/engines/standby_common/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -137,19 +135,17 @@ services:
   anchor-engine:
     build:
       context: .
-      dockerfile: engines/Dockerfile.python
-      args:
-        ENGINE_NAME: anchor_engine
+      dockerfile: engines/Dockerfile.anchor
     image: standby-anchor:latest
     container_name: standby-anchor
     ports:
-      - "8090:8090"
+      - "127.0.0.1:8090:8090"
     environment:
       NATS_URL: nats://nats:4222
       DB_POSTGRES: postgres://${POSTGRES_USER:-standby}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-standby}
       LOG_LEVEL: INFO
     volumes:
-      - ./engines/shared/models:/app/engines/shared/models
+      - ./engines/standby_common/models:/app/engines/standby_common/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -160,13 +156,11 @@ services:
   governance-engine:
     build:
       context: .
-      dockerfile: engines/Dockerfile.python
-      args:
-        ENGINE_NAME: governance_engine
+      dockerfile: engines/Dockerfile.governance
     image: standby-governance:latest
     container_name: standby-governance
     ports:
-      - "8092:8092"
+      - "127.0.0.1:8092:8092"
     environment:
       NATS_URL: nats://nats:4222
       DB_POSTGRES: postgres://${POSTGRES_USER:-standby}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-standby}
@@ -184,13 +178,11 @@ services:
   context-engine:
     build:
       context: .
-      dockerfile: engines/Dockerfile.python
-      args:
-        ENGINE_NAME: context_engine
+      dockerfile: engines/Dockerfile.context
     image: standby-context:latest
     container_name: standby-context
     ports:
-      - "8094:8094"
+      - "127.0.0.1:8094:8094"
     environment:
       NATS_URL: nats://nats:4222
       DB_POSTGRES: postgres://${POSTGRES_USER:-standby}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-standby}
@@ -232,7 +224,7 @@ services:
     image: standby-resonance-rust:latest
     container_name: standby-resonance-rust
     ports:
-      - "8095:8095"
+      - "127.0.0.1:8095:8095"
     environment:
       PORT: 8095
       RUST_LOG: info
@@ -250,7 +242,7 @@ services:
     image: standby-governance-rust:latest
     container_name: standby-governance-rust
     ports:
-      - "8096:8096"
+      - "127.0.0.1:8096:8096"
     environment:
       PORT: 8096
       RUST_LOG: info

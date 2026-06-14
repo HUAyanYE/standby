@@ -1,0 +1,47 @@
+# Resonance Engine Dockerfile
+# 用法: docker build -f Dockerfile.resonance -t standby-resonance .
+
+# Stage 1: 依赖安装
+FROM python:3.12-slim AS deps
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY engines/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Stage 2: 运行
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=deps /usr/local/bin /usr/local/bin
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 standby-common 包
+COPY engines/pyproject.toml /app/engines/
+COPY engines/standby_common /app/engines/standby_common
+RUN pip install -e /app/engines
+
+# 复制配置和 Proto
+COPY engines/config /app/engines/config
+COPY src/proto /app/src/proto
+
+# 只复制 resonance_engine 代码
+COPY engines/resonance_engine /app/engines/resonance_engine
+
+ENV ENGINE_NAME=resonance_engine
+ENV PORT=8091
+EXPOSE 8091
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD python3 -c "import sys; sys.exit(0)"
+
+CMD ["python3", "/app/engines/resonance_engine/service.py"]

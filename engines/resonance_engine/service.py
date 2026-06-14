@@ -17,15 +17,13 @@ from pathlib import Path
 import grpc
 import numpy as np
 
-# 引擎基类 + sibling 模块
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent))
-from shared.engine_base import (
+# 引擎基类 + 共享模块 (通过 standby_common 包导入)
+from standby_common.base import (
     EngineConfig, EngineServicer, timing_decorator,
     vector_to_bytes, bytes_to_vector,
 )
-from shared.db import get_pg, put_pg, get_redis
-from shared.db_queries import (
+from standby_common.db import get_pg, put_pg, get_redis
+from standby_common.db.resonance import (
     get_reaction_counts_by_type, find_resonance_reaction_users,
     list_reactions_paginated, count_reactions_filtered,
     save_reaction_event,
@@ -43,7 +41,7 @@ from resonance_calculator_v2 import (
 )
 
 # NATS 事件发布
-from shared.nats_client import NATSClient, EventBuilder
+from standby_common.events import NATSClient, EventBuilder
 
 
 class ResonanceEngineServicer(EngineServicer):
@@ -53,8 +51,8 @@ class ResonanceEngineServicer(EngineServicer):
         super().__init__(config)
 
         # 加载编码器
-        models_dir = Path(__file__).parent.parent / "shared" / "models"
-        from shared.encoders.text_encoder import TextEncoder
+        models_dir = Path(__file__).parent.parent / "standby_common" / "models"
+        from standby_common.encoders.text_encoder import TextEncoder
         self.encoder = TextEncoder(model_name=str(models_dir / "bge-base-zh-v1.5"))
 
         # 内存缓存 (热点数据, 持久化到 PostgreSQL, 有大小限制)
@@ -582,7 +580,7 @@ class ResonanceEngineServicer(EngineServicer):
             top_k_sims = self._find_top_k_similar(request.anchor_id, op_emb, k=5)
 
             # 5. 计算共鸣值 — 使用 Rust 高性能服务
-            from shared.rust_engine_client import call_resonance_compute_sync
+            from standby_common.rust_client import call_resonance_compute_sync
 
             # 映射反应类型到中文字符串
             reaction_type_map = {

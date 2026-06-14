@@ -131,6 +131,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/reactions/batch", axum::routing::post(routes::reactions::create_batch))
         .route("/api/v1/reactions/distribution/:anchor_id", axum::routing::get(routes::reactions::get_distribution))
         // 关系路由
+        .route("/api/v1/relationships/traces", axum::routing::get(routes::reactions::get_resonance_traces))
         .route("/api/v1/relationships/score", axum::routing::get(routes::reactions::get_relationship_score))
         .route("/api/v1/relationships/:user_id", axum::routing::get(routes::reactions::find_resonance_pairs))
         // 治理路由

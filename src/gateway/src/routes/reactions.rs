@@ -3,6 +3,7 @@ use axum::Extension;
 use axum::Json;
 
 use crate::error::ApiError;
+use crate::models::anchor::PaginationParams;
 use crate::models::auth::Claims;
 use crate::models::context::EncodeTextRequest;
 use crate::models::context::EncodeTextResponse;
@@ -94,6 +95,26 @@ pub async fn find_resonance_pairs(
     let mut client = state.engines.resonance.as_ref().clone();
     let pairs = client.find_resonance_pairs(&user_id).await?;
     Ok(Json(SuccessResponse::ok(pairs)))
+}
+
+/// GET /api/v1/relationships/traces
+pub async fn get_resonance_traces(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<PaginationParams>,
+) -> Result<Json<SuccessResponse<serde_json::Value>>, ApiError> {
+    let mut client = state.engines.resonance.as_ref().clone();
+    let page = params.validated_page();
+    let page_size = params.validated_page_size();
+
+    // 使用当前用户 ID 查找共鸣对
+    let pairs = client.find_resonance_pairs(&claims.sub).await?;
+
+    Ok(Json(SuccessResponse::ok(serde_json::json!({
+        "traces": pairs,
+        "total_count": pairs.len(),
+        "has_more": false,
+    }))))
 }
 
 /// POST /api/v1/encode

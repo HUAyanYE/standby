@@ -21,8 +21,7 @@ from typing import Optional
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from shared.encoders.text_encoder import TextEncoder
+from standby_common.encoders.text_encoder import TextEncoder
 
 
 # ============================================================

@@ -19,11 +19,9 @@ import time
 from pathlib import Path
 from datetime import datetime
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent))
-from shared.engine_base import EngineConfig, EngineServicer, timing_decorator
-from shared.db import get_pg, put_pg
-from shared.db_queries import save_user_context, load_all_user_contexts
+from standby_common.base import EngineConfig, EngineServicer, timing_decorator
+from standby_common.db import get_pg, put_pg
+from standby_common.db.context import save_user_context, load_all_user_contexts
 
 # gRPC 生成代码
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "proto" / "generated" / "python"))
@@ -32,7 +30,7 @@ from engines import engines_pb2
 from common import common_pb2
 
 # NATS 事件
-from shared.nats_client import NATSClient, EventBuilder
+from standby_common.events import NATSClient, EventBuilder
 
 logger = logging.getLogger(__name__)
 

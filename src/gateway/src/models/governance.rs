@@ -1,5 +1,47 @@
 use serde::{Deserialize, Serialize};
 
+/// 治理级别枚举 (与 Proto GovernanceLevel 对齐)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum GovernanceLevel {
+    #[serde(rename = "L0_NORMAL")]
+    L0Normal,
+    #[serde(rename = "L1_OBSERVE")]
+    L1Observe,
+    #[serde(rename = "L2_DEMOTED")]
+    L2Demoted,
+    #[serde(rename = "L3_SUSPENDED")]
+    L3Suspended,
+    #[serde(rename = "L4_REMOVED")]
+    L4Removed,
+    #[serde(rename = "DISPUTED")]
+    Disputed,
+}
+
+impl GovernanceLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::L0Normal => "L0_NORMAL",
+            Self::L1Observe => "L1_OBSERVE",
+            Self::L2Demoted => "L2_DEMOTED",
+            Self::L3Suspended => "L3_SUSPENDED",
+            Self::L4Removed => "L4_REMOVED",
+            Self::Disputed => "DISPUTED",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "L0_NORMAL" => Self::L0Normal,
+            "L1_OBSERVE" => Self::L1Observe,
+            "L2_DEMOTED" => Self::L2Demoted,
+            "L3_SUSPENDED" => Self::L3Suspended,
+            "L4_REMOVED" => Self::L4Removed,
+            "DISPUTED" => Self::Disputed,
+            _ => Self::L0Normal,
+        }
+    }
+}
+
 /// 评估内容请求
 #[derive(Debug, Deserialize)]
 pub struct EvaluateContentRequest {
@@ -25,7 +67,7 @@ pub struct MarkerCreditInput {
 #[derive(Debug, Serialize)]
 pub struct GovernanceDecision {
     pub content_id: String,
-    pub level: String,
+    pub level: GovernanceLevel,
     pub harmful_weight: f32,
     pub marker_avg_credit: f32,
     pub reason: String,

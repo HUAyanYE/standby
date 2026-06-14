@@ -21,17 +21,15 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent))
-from shared.engine_base import (
+from standby_common.base import (
     EngineConfig, EngineServicer, timing_decorator,
     vector_to_bytes, bytes_to_vector,
 )
-from shared.db import get_pg, put_pg
-from shared.db_queries import get_anchor_meta, get_anchor_meta_batch, save_anchor_meta, count_reactions_batch
+from standby_common.db import get_pg, put_pg
+from standby_common.db.anchor import get_anchor_meta, get_anchor_meta_batch, save_anchor_meta, count_reactions_batch
 
 # NATS 事件
-from shared.nats_client import NATSClient, EventBuilder
+from standby_common.events import NATSClient, EventBuilder
 
 # gRPC 生成代码
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "proto" / "generated" / "python"))
@@ -47,8 +45,8 @@ class AnchorEngineServicer(EngineServicer):
         super().__init__(config)
 
         # 加载编码器
-        models_dir = Path(__file__).parent.parent / "shared" / "models"
-        from shared.encoders.text_encoder import TextEncoder
+        models_dir = Path(__file__).parent.parent / "standby_common" / "models"
+        from standby_common.encoders.text_encoder import TextEncoder
         self.encoder = TextEncoder(model_name=str(models_dir / "bge-base-zh-v1.5"))
 
         # 内存缓存 (从 PG 加载)
@@ -722,7 +720,7 @@ class AnchorEngineServicer(EngineServicer):
         user_id = request.user_id
 
         try:
-            from shared.db import get_pg, put_pg
+            from standby_common.db import get_pg, put_pg
             pg = get_pg()
             cur = pg.cursor()
 
@@ -795,7 +793,7 @@ class AnchorEngineServicer(EngineServicer):
         anchor_id = request.anchor_id
 
         try:
-            from shared.db_queries import get_feeling_chain_anchors
+            from standby_common.db_queries import get_feeling_chain_anchors
             child_anchors = get_feeling_chain_anchors(anchor_id)
 
             nodes = []
