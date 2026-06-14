@@ -6,6 +6,7 @@ pub struct GatewayConfig {
     pub port: u16,
     pub jwt_secret: String,
     pub jwt_expiry_hours: u64,
+    pub device_secret: String,
     pub engine_anchor_url: String,
     pub engine_resonance_url: String,
     pub engine_governance_url: String,
@@ -28,6 +29,11 @@ impl GatewayConfig {
             jwt_expiry_hours: env::var("JWT_EXPIRY_HOURS")
                 .unwrap_or_else(|_| "24".into())
                 .parse()?,
+            device_secret: env::var("DEVICE_SECRET")
+                .unwrap_or_else(|_| {
+                    tracing::warn!("DEVICE_SECRET 未设置，使用 JWT_SECRET 作为回退");
+                    env::var("JWT_SECRET").unwrap_or_default()
+                }),
             engine_anchor_url: env::var("ENGINE_ANCHOR_URL")
                 .unwrap_or_else(|_| "http://localhost:8090".into()),
             engine_resonance_url: env::var("ENGINE_RESONANCE_URL")

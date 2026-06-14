@@ -16,6 +16,7 @@ pub async fn create_reaction(
     Extension(claims): Extension<Claims>,
     Json(req): Json<ProcessReactionRequest>,
 ) -> Result<Json<SuccessResponse<ReactionResult>>, ApiError> {
+    req.validate().map_err(ApiError::BadRequest)?;
     let mut client = state.engines.resonance.as_ref().clone();
     let result = client.process_reaction(&claims.sub, req).await?;
     Ok(Json(SuccessResponse::ok(result)))
@@ -27,6 +28,7 @@ pub async fn create_batch(
     Extension(claims): Extension<Claims>,
     Json(req): Json<ProcessBatchRequest>,
 ) -> Result<Json<SuccessResponse<BatchResult>>, ApiError> {
+    req.validate().map_err(ApiError::BadRequest)?;
     let mut client = state.engines.resonance.as_ref().clone();
     let result = client.process_batch(&claims.sub, req).await?;
     Ok(Json(SuccessResponse::ok(result)))
@@ -99,6 +101,7 @@ pub async fn encode_text(
     State(state): State<AppState>,
     Json(req): Json<EncodeTextRequest>,
 ) -> Result<Json<SuccessResponse<EncodeTextResponse>>, ApiError> {
+    req.validate().map_err(ApiError::BadRequest)?;
     let mut client = state.engines.resonance.as_ref().clone();
     let result = client.encode_text(req.texts).await?;
     Ok(Json(SuccessResponse::ok(result)))

@@ -32,7 +32,7 @@ _pg_pool_lock = threading.Lock()
 _pg_last_check = 0
 
 PG_POOL_MIN = 2
-PG_POOL_MAX = 20
+PG_POOL_MAX = 10
 
 
 def _init_pg_pool():
@@ -140,7 +140,12 @@ class pg_connection:
         return self.conn
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        put_pg(self.conn, close=(exc_type is not None))
+        if exc_type is not None:
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
+        put_pg(self.conn, close=False)
         return False
 
 

@@ -127,12 +127,23 @@ class MediaService {
       'media_type': mediaInfo.type.name,
     });
 
-    final resp = await _api.dio.post(
-      '/media/upload',
-      data: formData,
-    );
+    final uploadDio = Dio(BaseOptions(
+      baseUrl: _api.dio.options.baseUrl.replaceAll(':8080', ':8097'),
+      connectTimeout: const Duration(seconds: 30),
+      receiveTimeout: const Duration(seconds: 30),
+    ));
 
-    return resp.data as Map<String, dynamic>;
+    final resp = await uploadDio.post('/upload', data: formData);
+    final result = resp.data as Map<String, dynamic>;
+
+    // Convert MinIO internal URL to emulator-accessible URL
+    if (result['url'] != null) {
+      String url = result['url'] as String;
+      url = url.replaceAll('http://minio:9000', 'http://10.0.2.2:9000');
+      result['url'] = url;
+    }
+
+    return result;
   }
 
   /// 上传多个媒体文件

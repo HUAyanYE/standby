@@ -791,63 +791,25 @@ class AnchorEngineServicer(EngineServicer):
             )
 
     def GetFeelingChain(self, request, context):
-        """获取感受链 (树状结构)
-        
-        返回心物的完整感受链，使用扁平化的节点列表表示树结构。
-        客户端可根据 parent_reaction_id 重建树状结构。
-        """
+        """获取感受链 — 返回子心物列表（每条感受是独立心物）"""
         anchor_id = request.anchor_id
-        max_depth = request.max_depth if request.max_depth > 0 else 3
 
         try:
-            from shared.db import get_pg, put_pg
-            pg = get_pg()
-            cur = pg.cursor()
+            from shared.db_queries import get_feeling_chain_anchors
+            child_anchors = get_feeling_chain_anchors(anchor_id)
 
-            # 使用递归 CTE 查询感受链
-            cur.execute("""
-                WITH RECURSIVE chain AS (
-                    -- 根节点：直接关联到心物的反应
-                    SELECT id, user_id, text_content, emotion_word, 
-                           parent_reaction_id, depth, created_at
-                    FROM reactions
-                    WHERE anchor_id = %s AND parent_reaction_id IS NULL
-                    
-                    UNION ALL
-                    
-                    -- 递归：子反应 (限制深度)
-                    SELECT r.id, r.user_id, r.text_content, r.emotion_word,
-                           r.parent_reaction_id, r.depth, r.created_at
-                    FROM reactions r
-                    JOIN chain c ON r.parent_reaction_id = c.id
-                    WHERE r.depth <= %s
-                )
-                SELECT id, user_id, text_content, emotion_word, 
-                       parent_reaction_id, depth, created_at
-                FROM chain
-                ORDER BY depth, created_at
-            """, (anchor_id, max_depth))
-            
-            rows = cur.fetchall()
-            put_pg(pg)
-
-            # 构建节点列表
             nodes = []
-            for row in rows:
-                # 获取用户的匿名身份
-                display_name = "匿名用户"
-                avatar_seed = "default"
-                
+            for item in child_anchors:
                 nodes.append(engines_pb2.FeelingChainNode(
-                    reaction_id=str(row[0]),
-                    user_id=row[1] or "",
-                    display_name=display_name,
-                    avatar_seed=avatar_seed,
-                    text_content=row[2] or "",
-                    emotion_word=row[3] or "",
-                    parent_reaction_id=str(row[4]) if row[4] else "",
-                    depth=row[5] or 0,
-                    created_at=int(row[6].timestamp()) if row[6] else 0,
+                    reaction_id=item["anchor_id"],
+                    user_id=item.get("user_id", ""),
+                    display_name="",
+                    avatar_seed="",
+                    text_content=item.get("text_content", ""),
+                    emotion_word=item.get("emotion_word", ""),
+                    parent_reaction_id=anchor_id,
+                    depth=0,
+                    created_at=int(item.get("created_at", 0)),
                 ))
 
             return engines_pb2.GetFeelingChainResponse(

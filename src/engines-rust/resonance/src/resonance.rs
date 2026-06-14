@@ -105,13 +105,13 @@ pub fn compute_depth(
     opinion_embedding: Option<&[f32]>,
     anchor_embedding: Option<&[f32]>,
 ) -> f64 {
-    // 1. 字数权重
+    // 1. 字权重 (使用字符数而非字节数，正确处理中文)
     let base = match text {
         None => 0.6,
         Some(t) if t.trim().is_empty() => 0.6,
-        Some(t) if t.len() < 20 => 0.8,
-        Some(t) if t.len() < 50 => 0.9,
-        Some(t) if t.len() <= 200 => 1.0,
+        Some(t) if t.chars().count() < 20 => 0.8,
+        Some(t) if t.chars().count() < 50 => 0.9,
+        Some(t) if t.chars().count() <= 200 => 1.0,
         Some(_) => 1.05,
     };
 

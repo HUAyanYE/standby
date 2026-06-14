@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../app/theme.dart';
+import '../../app/theme_colors.dart';
 
 /// 感想输入对话框
 ///
@@ -40,13 +42,14 @@ class _OpinionDialogState extends State<OpinionDialog> {
 
   void _submit() {
     final text = _controller.text.trim();
+    HapticFeedback.lightImpact();
     Navigator.pop(context, text);
   }
 
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: StandbyColors.surface1,
+      backgroundColor: context.surface1,
       shape: RoundedRectangleBorder(borderRadius: StandbyRadius.cardRadius),
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -55,12 +58,12 @@ class _OpinionDialogState extends State<OpinionDialog> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // 标题
-            const Text(
+            Text(
               '写下你的感想',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: StandbyColors.text,
+                color: context.textColor,
               ),
             ),
             const SizedBox(height: 8),
@@ -69,7 +72,7 @@ class _OpinionDialogState extends State<OpinionDialog> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: StandbyColors.surface2,
+                color: context.surface2,
                 borderRadius: BorderRadius.circular(StandbyRadius.sm),
               ),
               child: Text(
@@ -79,7 +82,7 @@ class _OpinionDialogState extends State<OpinionDialog> {
                 style: TextStyle(
                   fontSize: 14,
                   height: 1.5,
-                  color: StandbyColors.text2,
+                  color: context.text2Color,
                 ),
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
@@ -90,7 +93,7 @@ class _OpinionDialogState extends State<OpinionDialog> {
             // 提示文字
             Text(
               '你的感想将以匿名方式展示。',
-              style: TextStyle(fontSize: 12, color: StandbyColors.text3),
+              style: TextStyle(fontSize: 12, color: context.text3Color),
             ),
             const SizedBox(height: 12),
 
@@ -100,17 +103,17 @@ class _OpinionDialogState extends State<OpinionDialog> {
               maxLines: 5,
               maxLength: 500,
               autofocus: true,
-              style: const TextStyle(color: StandbyColors.text),
+              style: TextStyle(color: context.textColor),
               decoration: InputDecoration(
                 hintText: '写下你的感想...',
-                hintStyle: TextStyle(color: StandbyColors.text3),
+                hintStyle: TextStyle(color: context.text3Color),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(StandbyRadius.md),
-                  borderSide: const BorderSide(color: StandbyColors.border),
+                  borderSide: BorderSide(color: context.borderColor),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(StandbyRadius.md),
-                  borderSide: const BorderSide(color: StandbyColors.border),
+                  borderSide: BorderSide(color: context.borderColor),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(StandbyRadius.md),
@@ -118,7 +121,7 @@ class _OpinionDialogState extends State<OpinionDialog> {
                 ),
                 contentPadding: const EdgeInsets.all(16),
                 filled: true,
-                fillColor: StandbyColors.surface2,
+                fillColor: context.surface2,
               ),
               onChanged: (_) => setState(() {}),
             ),
@@ -133,12 +136,12 @@ class _OpinionDialogState extends State<OpinionDialog> {
                     onPressed: () => Navigator.pop(context, ''),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      side: const BorderSide(color: StandbyColors.border),
+                      side: BorderSide(color: context.borderColor),
                       shape: RoundedRectangleBorder(
                         borderRadius: StandbyRadius.buttonRadius,
                       ),
                     ),
-                    child: const Text('跳过', style: TextStyle(color: StandbyColors.text2)),
+                    child: Text('跳过', style: TextStyle(color: context.text2Color)),
                   ),
                 ),
                 const SizedBox(width: 12),

@@ -1,0 +1,174 @@
+openapi: "3.0.3"
+info:
+  title: Standby Resonance Service
+  description: |
+    Rust 高性能共鸣计算服务。
+
+    此服务提供 CPU 密集型计算的 HTTP/JSON 接口，
+    供 Python resonance_engine 通过 `rust_engine_client.py` 调用。
+
+    ## 架构位置
+    ```
+    Python resonance_engine (gRPC:8091)
+      └─ rust_engine_client.py
+          └─ HTTP/JSON → resonance-service (HTTP:8095)
+    ```
+  version: "0.1.0"
+
+servers:
+  - url: http://localhost:8095
+    description: 本地开发
+
+paths:
+  /health:
+    get:
+      summary: 健康检查
+      operationId: healthCheck
+      responses:
+        "200":
+          description: 服务健康
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+
+  /compute:
+    post:
+      summary: 计算共鸣值
+      description: |
+        计算用户对锚点的共鸣值。
+        这是核心热路径，使用 SIMD + 并行加速。
+      operationId: computeResonance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComputeResonanceRequest"
+      responses:
+        "200":
+          description: 计算成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComputeResonanceResponse"
+        "400":
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 内部错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    ComputeResonanceRequest:
+      type: object
+      required:
+        - user_id
+        - anchor_id
+        - reaction_type
+        - opinion_embedding
+        - anchor_embedding
+        - existing_embeddings
+      properties:
+        user_id:
+          type: string
+          description: 用户内部令牌哈希
+        anchor_id:
+          type: string
+          description: 锚点 ID
+        reaction_type:
+          type: string
+          enum: ["共鸣", "无感", "反对", "未体验", "有害"]
+          description: 反应类型
+        opinion_text:
+          type: string
+          nullable: true
+          description: 用户观点文本
+        emotion_word:
+          type: string
+          enum: ["同感", "触发", "启发", "震撼"]
+          nullable: true
+          description: 情感词
+        opinion_embedding:
+          type: array
+          items:
+            type: number
+            format: float
+          description: 观点向量 (768 维)
+        anchor_embedding:
+          type: array
+          items:
+            type: number
+            format: float
+          description: 锚点向量 (768 维)
+        existing_embeddings:
+          type: array
+          items:
+            type: array
+            items:
+              type: number
+              format: float
+          description: 已有共鸣向量列表
+        harmful_ratio:
+          type: number
+          format: double
+          default: 0.0
+          description: 有害反应比例 (0.0-1.0)
+        unexperienced_ratio:
+          type: number
+          format: double
+          default: 0.0
+          description: 未体验反应比例 (0.0-1.0)
+
+    ComputeResonanceResponse:
+      type: object
+      properties:
+        value:
+          type: number
+          format: double
+          description: 共鸣值 (0.0-1.0)
+        components:
+          $ref: "#/components/schemas/ScoreComponents"
+
+    ScoreComponents:
+      type: object
+      properties:
+        resonance_weight:
+          type: number
+          format: double
+        depth:
+          type: number
+          format: double
+        relevance_raw:
+          type: number
+          format: double
+        relevance_sigmoid:
+          type: number
+          format: double
+        novelty:
+          type: number
+          format: double
+        harmful_penalty:
+          type: number
+          format: double
+        unexperienced_penalty:
+          type: number
+          format: double
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: 错误信息

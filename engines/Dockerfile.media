@@ -1,0 +1,5 @@
+FROM python:3.12-slim
+WORKDIR /app
+COPY engines/media_engine /app/engines/media_engine
+EXPOSE 8097
+CMD ["python3", "/app/engines/media_engine/service.py"]

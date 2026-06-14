@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../shared/services/api_service.dart';
 import '../../shared/models/trace.dart';
+import '../../shared/widgets/standby_empty_state.dart';
 import '../../shared/providers/feature_unlock_provider.dart';
 import '../../app/theme.dart';
+import '../../app/theme_colors.dart';
 
 /// 痕迹页 — 共鸣轨迹、关系脉络
 class TraceScreen extends ConsumerStatefulWidget {
@@ -60,27 +62,13 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('近期频繁共鸣', style: TextStyle(fontSize: 14, color: StandbyColors.text2)),
+                  Text('近期频繁共鸣', style: TextStyle(fontSize: 14, color: context.text2Color)),
                   const SizedBox(height: 16),
                   if (_traces.isEmpty)
-                    Container(
-                      padding: StandbySpacing.cardPadding,
-                      decoration: BoxDecoration(
-                        color: StandbyColors.surface1,
-                        borderRadius: StandbyRadius.cardRadius,
-                        border: Border.all(color: StandbyColors.border),
-                      ),
-                      child: Center(
-                        child: Column(
-                          children: [
-                            const Text('🌿', style: TextStyle(fontSize: 32)),
-                            const SizedBox(height: 12),
-                            Text('暂无痕迹', style: TextStyle(fontSize: 14, color: StandbyColors.text2)),
-                            const SizedBox(height: 4),
-                            Text('多写感想，共鸣自然会出现', style: TextStyle(fontSize: 12, color: StandbyColors.text3)),
-                          ],
-                        ),
-                      ),
+                    const StandbyEmptyState(
+                      emoji: '🌿',
+                      title: '暂无痕迹',
+                      description: '多写感想，共鸣自然会出现',
                     )
                   else
                     ..._traces.map((trace) => _buildTraceCard(trace)),
@@ -97,9 +85,9 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: StandbyColors.surface1,
+        color: context.surface1,
         borderRadius: StandbyRadius.cardRadius,
-        border: Border.all(color: StandbyColors.border),
+        border: Border.all(color: context.borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -114,15 +102,15 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
                   children: [
                     Text(
                       trace.nickname,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w500,
-                        color: StandbyColors.text,
+                        color: context.textColor,
                       ),
                     ),
                     Text(
                       '${trace.sharedAnchors} 个共同心物',
-                      style: TextStyle(fontSize: 12, color: StandbyColors.text3),
+                      style: TextStyle(fontSize: 12, color: context.text3Color),
                     ),
                   ],
                 ),
@@ -146,20 +134,20 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: StandbyColors.surface2,
+              color: context.surface2,
               borderRadius: BorderRadius.circular(StandbyRadius.sm),
-              border: Border.all(color: StandbyColors.border),
+              border: Border.all(color: context.borderColor),
             ),
             child: Row(
               children: [
-                Icon(Icons.format_quote, size: 16, color: StandbyColors.text3),
+                Icon(Icons.format_quote, size: 16, color: context.text3Color),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     trace.lastAnchorText,
                     style: TextStyle(
                       fontSize: 13,
-                      color: StandbyColors.text2,
+                      color: context.text2Color,
                       fontStyle: FontStyle.italic,
                     ),
                     maxLines: 1,
@@ -175,42 +163,46 @@ class _TraceScreenState extends ConsumerState<TraceScreen> {
   }
 
   Widget _buildConfidantSection(bool isUnlocked) {
-    return Container(
-      padding: StandbySpacing.cardPadding,
-      decoration: BoxDecoration(
-        color: isUnlocked ? StandbyColors.surface2 : StandbyColors.surface1,
-        borderRadius: StandbyRadius.cardRadius,
-        border: Border.all(color: isUnlocked ? StandbyColors.primarySoft : StandbyColors.border),
-      ),
-      child: Column(
-        children: [
-          Text(isUnlocked ? '🕯' : '🔒', style: const TextStyle(fontSize: 32)),
-          const SizedBox(height: 8),
-          Text(
-            '知己',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: isUnlocked ? StandbyColors.text : StandbyColors.text3,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            isUnlocked ? '查看知己' : '需要更多共鸣后解锁',
-            style: TextStyle(fontSize: 14, color: StandbyColors.text2),
-          ),
-          if (isUnlocked) ...[
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => context.push('/confidant'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: StandbyColors.primary,
-                foregroundColor: Colors.white,
+    return AnimatedOpacity(
+      opacity: isUnlocked ? 1.0 : 0.6,
+      duration: StandbyDuration.slow,
+      child: Container(
+        padding: StandbySpacing.cardPadding,
+        decoration: BoxDecoration(
+          color: isUnlocked ? context.surface2 : context.surface1,
+          borderRadius: StandbyRadius.cardRadius,
+          border: Border.all(color: isUnlocked ? StandbyColors.primarySoft : context.borderColor),
+        ),
+        child: Column(
+          children: [
+            const Text('🕯', style: TextStyle(fontSize: 32)),
+            const SizedBox(height: 8),
+            Text(
+              '知己',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: isUnlocked ? context.textColor : context.text2Color,
               ),
-              child: const Text('进入知己'),
             ),
+            const SizedBox(height: 8),
+            Text(
+              isUnlocked ? '查看知己' : '在共鸣中自然浮现',
+              style: TextStyle(fontSize: 14, color: context.text2Color),
+            ),
+            if (isUnlocked) ...[
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => context.push('/confidant'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: StandbyColors.primary,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('进入知己'),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

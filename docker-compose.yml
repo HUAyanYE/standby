@@ -20,22 +20,41 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-standby}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请设置 POSTGRES_PASSWORD 环境变量}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./db/init-db.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U standby"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+  # 数据库迁移服务
+  db-migrate:
+    image: python:3.12-slim
+    container_name: standby-db-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_POSTGRES: postgresql://standby:${POSTGRES_PASSWORD}@postgres:5432/standby
+      DEVELOPMENT_SEED: ${DEVELOPMENT_SEED:-false}
+    volumes:
+      - ./db:/app/db
+    working_dir: /app
+    command: >
+      sh -c "
+        pip install psycopg2-binary pyyaml -q &&
+        python db/run_migrations.py --seed
+      "
+    restart: "no"
+
   # Dragonfly (缓存, Redis 兼容)
   dragonfly:
     image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.25.4
     container_name: standby-dragonfly
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     ulimits:
       memlock: -1
     healthcheck:
@@ -50,8 +69,8 @@ services:
     container_name: standby-nats
     command: ["-js", "-m", "8222"]
     ports:
-      - "4222:4222"   # 客户端
-      - "8222:8222"   # 监控
+      - "127.0.0.1:4222:4222"   # 客户端
+      - "127.0.0.1:8222:8222"   # 监控
     volumes:
       - natsdata:/data
     healthcheck:
@@ -62,12 +81,12 @@ services:
 
   # MinIO (对象存储 - 媒体文件)
   minio:
-    image: minio/minio:RELEASE.2024-01-01T16-36-33Z
+    image: minio/minio:RELEASE.2024-01-18T22-51-28Z
     container_name: standby-minio
     command: server /data --console-address ":9001"
     ports:
-      - "9000:9000"   # API
-      - "9001:9001"   # Console
+      - "127.0.0.1:9000:9000"   # API
+      - "127.0.0.1:9001:9001"   # Console
     volumes:
       - minio_data:/data
     environment:
@@ -182,6 +201,25 @@ services:
       nats:
         condition: service_healthy
 
+  # 媒体上传服务 (MinIO)
+  media-engine:
+    build:
+      context: .
+      dockerfile: engines/Dockerfile.media
+    image: standby-media:latest
+    container_name: standby-media
+    ports:
+      - "8097:8097"
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-standby}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: media
+      MEDIA_PORT: 8097
+    depends_on:
+      minio:
+        condition: service_healthy
+
   # ============================================================
   # Rust 高性能计算服务
   # ============================================================
@@ -242,7 +280,7 @@ services:
       ENGINE_RESONANCE_URL: http://resonance-engine:8091
       ENGINE_GOVERNANCE_URL: http://governance-engine:8092
       ENGINE_CONTEXT_URL: http://context-engine:8094
-      RATE_LIMIT_PER_MINUTE: "60"
+      RATE_LIMIT_PER_MINUTE: "99999"
       LOG_LEVEL: info
     depends_on:
       postgres:

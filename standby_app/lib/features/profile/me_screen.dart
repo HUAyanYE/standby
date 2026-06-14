@@ -6,6 +6,8 @@ import '../../shared/models/user_identity.dart';
 import '../../shared/providers/feature_unlock_provider.dart';
 import '../../core/constants/app_constants.dart';
 import '../../app/theme.dart';
+import '../../app/theme_colors.dart';
+import '../../app/theme_provider.dart';
 
 /// 我页 — 个人信息、设置、知己入口
 class MeScreen extends ConsumerStatefulWidget {
@@ -32,7 +34,7 @@ class _MeScreenState extends ConsumerState<MeScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: StandbyColors.surface1,
+      backgroundColor: context.surface1,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(StandbyRadius.xl)),
       ),
@@ -48,6 +50,64 @@ class _MeScreenState extends ConsumerState<MeScreen> {
           await _storage.setUserIdentity(newIdentity.toJson());
           setState(() => _currentIdentity = newIdentity);
         },
+      ),
+    );
+  }
+
+  String _themeModeLabel(AppThemeMode mode) {
+    switch (mode) {
+      case AppThemeMode.dark:
+        return '暗色';
+      case AppThemeMode.light:
+        return '亮色';
+      case AppThemeMode.system:
+        return '跟随系统';
+    }
+  }
+
+  void _showThemePicker(BuildContext context, WidgetRef ref) {
+    final current = ref.read(themeModeProvider);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: context.surface1,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(StandbyRadius.xl)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('外观模式', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: context.textColor)),
+            const SizedBox(height: 20),
+            ...AppThemeMode.values.map((mode) {
+              final selected = mode == current;
+              return ListTile(
+                key: Key('theme_${mode.name}'),
+                leading: Icon(
+                  mode == AppThemeMode.dark
+                      ? Icons.dark_mode_outlined
+                      : mode == AppThemeMode.light
+                          ? Icons.light_mode_outlined
+                          : Icons.brightness_auto_outlined,
+                  color: selected ? StandbyColors.primary : context.text2Color,
+                ),
+                title: Text(
+                  _themeModeLabel(mode),
+                  style: TextStyle(
+                    color: selected ? StandbyColors.primary : context.textColor,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
+                trailing: selected ? const Icon(Icons.check, color: StandbyColors.primary) : null,
+                onTap: () {
+                  ref.read(themeModeProvider.notifier).setMode(mode);
+                  Navigator.pop(ctx);
+                },
+              );
+            }),
+          ],
+        ),
       ),
     );
   }
@@ -86,9 +146,9 @@ class _MeScreenState extends ConsumerState<MeScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: StandbyColors.surface1,
+                  color: context.surface1,
                   borderRadius: StandbyRadius.cardRadius,
-                  border: Border.all(color: StandbyColors.border),
+                  border: Border.all(color: context.borderColor),
                 ),
                 child: Column(
                   children: [
@@ -102,9 +162,9 @@ class _MeScreenState extends ConsumerState<MeScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.edit, size: 14, color: StandbyColors.text3),
+                        Icon(Icons.edit, size: 14, color: context.text3Color),
                         const SizedBox(width: 4),
-                        Text('点击编辑', style: TextStyle(fontSize: 12, color: StandbyColors.text3)),
+                        Text('点击编辑', style: TextStyle(fontSize: 12, color: context.text3Color)),
                       ],
                     ),
                   ],
@@ -134,11 +194,11 @@ class _MeScreenState extends ConsumerState<MeScreen> {
                       children: [
                         const Text('🕯', style: TextStyle(fontSize: 32)),
                         const SizedBox(height: 8),
-                        const Text('知己', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: StandbyColors.text)),
+                        Text('知己', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: context.textColor)),
                         const SizedBox(height: 8),
-                        Text('暂时无人', style: TextStyle(fontSize: 14, color: StandbyColors.text2)),
+                        Text('暂时无人', style: TextStyle(fontSize: 14, color: context.text2Color)),
                         const SizedBox(height: 4),
-                        Text('共鸣需要时间沉淀', style: TextStyle(fontSize: 12, color: StandbyColors.text3)),
+                        Text('共鸣需要时间沉淀', style: TextStyle(fontSize: 12, color: context.text3Color)),
                         const SizedBox(height: 16),
                         ElevatedButton(
                           onPressed: () => context.push('/confidant'),
@@ -163,8 +223,8 @@ class _MeScreenState extends ConsumerState<MeScreen> {
                 _buildSettingRow(
                   icon: Icons.brightness_6_outlined,
                   title: '外观模式',
-                  value: '暗色',
-                  onTap: () {},
+                  value: _themeModeLabel(ref.watch(themeModeProvider)),
+                  onTap: () => _showThemePicker(context, ref),
                 ),
               ],
             ),
@@ -182,7 +242,7 @@ class _MeScreenState extends ConsumerState<MeScreen> {
                         width: 64,
                         height: 64,
                         decoration: BoxDecoration(
-                          color: StandbyColors.surface2,
+                          color: context.surface2,
                           borderRadius: BorderRadius.circular(StandbyRadius.lg),
                         ),
                         child: const Center(child: Text('📖', style: TextStyle(fontSize: 32))),
@@ -190,17 +250,17 @@ class _MeScreenState extends ConsumerState<MeScreen> {
                       const SizedBox(height: 12),
                       Text(AppConstants.appName, style: StandbyTextStyles.h2),
                       const SizedBox(height: 4),
-                      Text('v${AppConstants.appVersion}', style: TextStyle(fontSize: 14, color: StandbyColors.text3)),
+                      Text('v${AppConstants.appVersion}', style: TextStyle(fontSize: 14, color: context.text3Color)),
                       const SizedBox(height: 16),
                       Text(
                         '有共鸣才有真实感想',
-                        style: TextStyle(fontSize: 16, color: StandbyColors.text2, fontWeight: FontWeight.w500),
+                        style: TextStyle(fontSize: 16, color: context.text2Color, fontWeight: FontWeight.w500),
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 8),
                       Text(
                         '在 Standby，每一次共鸣都是真实的表达。\n我们相信，真正的想法来自于共同的体验。',
-                        style: TextStyle(fontSize: 14, color: StandbyColors.text3, height: 1.5),
+                        style: TextStyle(fontSize: 14, color: context.text3Color, height: 1.5),
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 16),
@@ -216,12 +276,12 @@ class _MeScreenState extends ConsumerState<MeScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
-                          color: StandbyColors.surface2,
+                          color: context.surface2,
                           borderRadius: BorderRadius.circular(StandbyRadius.sm),
                         ),
                         child: Text(
                           'Build ${AppConstants.buildNumber}',
-                          style: TextStyle(fontSize: 12, color: StandbyColors.text3),
+                          style: TextStyle(fontSize: 12, color: context.text3Color),
                         ),
                       ),
                     ],
@@ -238,16 +298,16 @@ class _MeScreenState extends ConsumerState<MeScreen> {
   Widget _buildSection({required String title, required List<Widget> children}) {
     return Container(
       decoration: BoxDecoration(
-        color: StandbyColors.surface1,
+        color: context.surface1,
         borderRadius: StandbyRadius.cardRadius,
-        border: Border.all(color: StandbyColors.border),
+        border: Border.all(color: context.borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text(title, style: TextStyle(fontSize: 14, color: StandbyColors.text2, fontWeight: FontWeight.w500)),
+            child: Text(title, style: TextStyle(fontSize: 14, color: context.text2Color, fontWeight: FontWeight.w500)),
           ),
           ...children,
         ],
@@ -260,9 +320,9 @@ class _MeScreenState extends ConsumerState<MeScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: StandbyColors.text2),
+          Icon(icon, size: 18, color: context.text2Color),
           const SizedBox(width: 12),
-          Expanded(child: Text(text, style: const TextStyle(fontSize: 14, color: StandbyColors.text))),
+          Expanded(child: Text(text, style: TextStyle(fontSize: 14, color: context.textColor))),
         ],
       ),
     );
@@ -280,12 +340,12 @@ class _MeScreenState extends ConsumerState<MeScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
-            Icon(icon, size: 20, color: StandbyColors.text2),
+            Icon(icon, size: 20, color: context.text2Color),
             const SizedBox(width: 12),
-            Expanded(child: Text(title, style: const TextStyle(fontSize: 14, color: StandbyColors.text))),
-            Text(value, style: TextStyle(fontSize: 14, color: StandbyColors.text3)),
+            Expanded(child: Text(title, style: TextStyle(fontSize: 14, color: context.textColor))),
+            Text(value, style: TextStyle(fontSize: 14, color: context.text3Color)),
             const SizedBox(width: 8),
-            Icon(Icons.chevron_right, size: 20, color: StandbyColors.text3),
+            Icon(Icons.chevron_right, size: 20, color: context.text3Color),
           ],
         ),
       ),
@@ -297,7 +357,7 @@ class _MeScreenState extends ConsumerState<MeScreen> {
       children: [
         Text(emoji, style: const TextStyle(fontSize: 24)),
         const SizedBox(height: 4),
-        Text(label, style: TextStyle(fontSize: 12, color: StandbyColors.text2)),
+        Text(label, style: TextStyle(fontSize: 12, color: context.text2Color)),
       ],
     );
   }
@@ -370,7 +430,7 @@ class _EditIdentitySheetState extends State<_EditIdentitySheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text('编辑身份', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: StandbyColors.text), textAlign: TextAlign.center),
+          Text('编辑身份', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: context.textColor), textAlign: TextAlign.center),
           const SizedBox(height: 24),
           TextField(
             controller: _avatarController,
@@ -378,17 +438,17 @@ class _EditIdentitySheetState extends State<_EditIdentitySheet> {
             textAlign: TextAlign.center,
             decoration: InputDecoration(
               hintText: '选择一个 Emoji',
-              hintStyle: TextStyle(color: StandbyColors.text3),
+              hintStyle: TextStyle(color: context.text3Color),
               border: OutlineInputBorder(borderRadius: StandbyRadius.buttonRadius),
             ),
           ),
           const SizedBox(height: 16),
           TextField(
             controller: _nicknameController,
-            style: const TextStyle(color: StandbyColors.text),
+            style: TextStyle(color: context.textColor),
             decoration: InputDecoration(
               hintText: '输入昵称',
-              hintStyle: TextStyle(color: StandbyColors.text3),
+              hintStyle: TextStyle(color: context.text3Color),
               border: OutlineInputBorder(borderRadius: StandbyRadius.buttonRadius),
             ),
           ),

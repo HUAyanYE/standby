@@ -47,10 +47,12 @@ class GovernanceEngineServicer(EngineServicer):
 
         # 内存缓存 (从 PG 加载, 更新后写回)
         self._marker_credits: dict[str, MarkerRecord] = {}
+        self._marker_credits_lock = threading.Lock()
         self._load_marker_credits()
 
         # 批量写入缓冲
         self._pending_credit_updates: dict[str, float] = {}
+        self._pending_lock = threading.Lock()
         self._flush_interval = 10  # 秒
         self._start_flush_thread()
 
@@ -99,38 +101,41 @@ class GovernanceEngineServicer(EngineServicer):
 
     def _flush_pending_credits(self):
         """批量刷入待写入的信用更新"""
-        if not self._pending_credit_updates:
-            return
-
-        updates = dict(self._pending_credit_updates)
-        self._pending_credit_updates.clear()
+        with self._pending_lock:
+            if not self._pending_credit_updates:
+                return
+            updates = dict(self._pending_credit_updates)
+            self._pending_credit_updates.clear()
 
         try:
             pg = get_pg()
-            cur = pg.cursor()
-            # 批量更新
-            for token_hash, credit in updates.items():
-                cur.execute("""
-                    UPDATE users SET marker_credit = %s, updated_at = NOW()
-                    WHERE internal_token = %s
-                """, (credit, token_hash))
-                if cur.rowcount == 0:
+            try:
+                cur = pg.cursor()
+                for token_hash, credit in updates.items():
                     cur.execute("""
-                        INSERT INTO users (id, phone_hash, internal_token, device_fingerprint, marker_credit)
-                        VALUES (gen_random_uuid(), %s, %s, 'unknown', %s)
-                        ON CONFLICT (internal_token) DO UPDATE SET marker_credit = EXCLUDED.marker_credit
-                    """, (f"hash_{token_hash}", token_hash, credit))
-            put_pg(pg)
+                        UPDATE users SET marker_credit = %s, updated_at = NOW()
+                        WHERE internal_token = %s
+                    """, (credit, token_hash))
+                    if cur.rowcount == 0:
+                        cur.execute("""
+                            INSERT INTO users (id, phone_hash, internal_token, device_fingerprint, marker_credit)
+                            VALUES (gen_random_uuid(), %s, %s, 'unknown', %s)
+                            ON CONFLICT (internal_token) DO UPDATE SET marker_credit = EXCLUDED.marker_credit
+                        """, (f"hash_{token_hash}", token_hash, credit))
+                pg.commit()
+            finally:
+                put_pg(pg)
             logger.info(f"批量刷入 {len(updates)} 条标记者信用更新")
         except Exception as e:
             logger.error(f"批量刷入标记者信用失败: {e}")
 
     def _save_marker_credit(self, token_hash: str, credit: float):
         """缓冲标记者信用更新 (批量写入)"""
-        self._pending_credit_updates[token_hash] = credit
-        # 内存缓存立即更新
-        if token_hash in self._marker_credits:
-            self._marker_credits[token_hash].credit_score = credit
+        with self._pending_lock:
+            self._pending_credit_updates[token_hash] = credit
+        with self._marker_credits_lock:
+            if token_hash in self._marker_credits:
+                self._marker_credits[token_hash].credit_score = credit
 
     def _save_decision(self, content_id: str, level: str, harmful_weight: float,
                        marker_avg_credit: float, reason: str, actions: list):

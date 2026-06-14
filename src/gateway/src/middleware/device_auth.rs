@@ -24,7 +24,7 @@ const TIMESTAMP_WINDOW_SECS: i64 = 300; // 5 分钟
 /// 验证请求签名: HMAC-SHA256(device_secret, method + path + timestamp + device_id)
 /// 防重放: 时间戳窗口 ±5 分钟
 pub async fn device_auth(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
@@ -56,12 +56,12 @@ pub async fn device_auth(
     // 从扩展中获取 Claims (JWT 中间件已注入)
     // 如果没有 Claims，说明是未认证请求，跳过签名验证
     if let Some(claims) = request.extensions().get::<Claims>() {
-        // 验证签名
+        // 验证签名 — 使用配置中的 device_secret 而非 device_id
         let method = request.method().as_str();
         let path = request.uri().path();
 
         let message = format!("{}{}{}{}", method, path, timestamp_str, device_id);
-        let expected_signature = compute_hmac(&claims.device_id, &message);
+        let expected_signature = compute_hmac(&state.config.device_secret, &message);
 
         if signature != expected_signature {
             return Err(ApiError::Unauthorized("设备签名验证失败".into()));
@@ -90,6 +90,7 @@ fn get_header_value(headers: &HeaderMap, name: &str) -> Result<String, ApiError>
 }
 
 /// 设备认证白名单路由
+/// 仅健康检查和认证路由跳过设备认证（注册/登录时用户尚未认证）
 fn is_device_auth_exempt(path: &str) -> bool {
     matches!(
         path,

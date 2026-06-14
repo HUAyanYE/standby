@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../shared/providers/seedstone_provider.dart';
+import '../../shared/widgets/standby_empty_state.dart';
+import '../../shared/utils/formatters.dart';
 import '../../app/theme.dart';
+import '../../app/theme_colors.dart';
 
 /// 记录页 — 我的发布和感受日记
 class RecordScreen extends ConsumerStatefulWidget {
@@ -31,22 +34,6 @@ class RecordScreenState extends ConsumerState<RecordScreen>
   void loadData() {
     ref.read(myReactionsProvider.notifier).refresh();
     ref.read(myPostsProvider.notifier).refresh();
-  }
-
-  String _formatDate(int timestamp) {
-    final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-    final dateOnly = DateTime(date.year, date.month, date.day);
-
-    if (dateOnly == today) {
-      return '今天';
-    } else if (dateOnly == yesterday) {
-      return '昨天';
-    } else {
-      return '${date.month}月${date.day}日';
-    }
   }
 
   @override
@@ -81,16 +68,11 @@ class RecordScreenState extends ConsumerState<RecordScreen>
 
   Widget _buildPostsTab(List<Map<String, dynamic>> posts) {
     if (posts.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.edit_note, size: 64, color: StandbyColors.text3),
-            const SizedBox(height: 16),
-            Text('还没有发布内容', style: TextStyle(fontSize: 16, color: StandbyColors.text2)),
-            const SizedBox(height: 8),
-            Text('点击右下角按钮发布你的想法', style: TextStyle(fontSize: 14, color: StandbyColors.text3)),
-          ],
+      return const Center(
+        child: StandbyEmptyState(
+          emoji: '📝',
+          title: '还没有发布内容',
+          description: '点击右下角按钮发布你的想法',
         ),
       );
     }
@@ -105,15 +87,15 @@ class RecordScreenState extends ConsumerState<RecordScreen>
 
           Widget? header;
           if (index == 0 ||
-              _formatDate(post['timestamp'] as int) !=
-                  _formatDate(posts[index - 1]['timestamp'] as int)) {
+              Formatters.formatDate(post['timestamp'] as int) !=
+                  Formatters.formatDate(posts[index - 1]['timestamp'] as int)) {
             header = Padding(
               padding: const EdgeInsets.only(bottom: 12, top: 8),
               child: Text(
-                '📅 ${_formatDate(post['timestamp'] as int)}',
+                '📅 ${Formatters.formatDate(post['timestamp'] as int)}',
                 style: TextStyle(
                   fontSize: 14,
-                  color: StandbyColors.text2,
+                  color: context.text2Color,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -134,16 +116,11 @@ class RecordScreenState extends ConsumerState<RecordScreen>
 
   Widget _buildDiaryTab(List<Map<String, dynamic>> reactions) {
     if (reactions.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.book_outlined, size: 64, color: StandbyColors.text3),
-            const SizedBox(height: 16),
-            Text('还没有感受记录', style: TextStyle(fontSize: 16, color: StandbyColors.text2)),
-            const SizedBox(height: 8),
-            Text('在「遇见」页写下你的感想', style: TextStyle(fontSize: 14, color: StandbyColors.text3)),
-          ],
+      return const Center(
+        child: StandbyEmptyState(
+          emoji: '💭',
+          title: '还没有感受记录',
+          description: '在「遇见」页写下你的感想',
         ),
       );
     }
@@ -158,15 +135,15 @@ class RecordScreenState extends ConsumerState<RecordScreen>
 
           Widget? header;
           if (index == 0 ||
-              _formatDate(reaction['timestamp'] as int) !=
-                  _formatDate(reactions[index - 1]['timestamp'] as int)) {
+              Formatters.formatDate(reaction['timestamp'] as int) !=
+                  Formatters.formatDate(reactions[index - 1]['timestamp'] as int)) {
             header = Padding(
               padding: const EdgeInsets.only(bottom: 12, top: 8),
               child: Text(
-                '📅 ${_formatDate(reaction['timestamp'] as int)}',
+                '📅 ${Formatters.formatDate(reaction['timestamp'] as int)}',
                 style: TextStyle(
                   fontSize: 14,
-                  color: StandbyColors.text2,
+                  color: context.text2Color,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -201,9 +178,9 @@ class RecordScreenState extends ConsumerState<RecordScreen>
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: StandbyColors.surface1,
+          color: context.surface1,
           borderRadius: StandbyRadius.cardRadius,
-          border: Border.all(color: StandbyColors.border),
+          border: Border.all(color: context.borderColor),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -212,20 +189,20 @@ class RecordScreenState extends ConsumerState<RecordScreen>
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: StandbyColors.surface2,
+                  color: context.surface2,
                   borderRadius: BorderRadius.circular(StandbyRadius.sm),
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.movie_creation_outlined, size: 16, color: StandbyColors.text3),
+                    Icon(Icons.movie_creation_outlined, size: 16, color: context.text3Color),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         scene,
                         style: TextStyle(
                           fontSize: 13,
-                          color: StandbyColors.text2,
+                          color: context.text2Color,
                           fontStyle: FontStyle.italic,
                         ),
                       ),
@@ -275,9 +252,9 @@ class RecordScreenState extends ConsumerState<RecordScreen>
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: StandbyColors.surface1,
+          color: context.surface1,
           borderRadius: StandbyRadius.cardRadius,
-          border: Border.all(color: StandbyColors.border),
+          border: Border.all(color: context.borderColor),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -285,20 +262,20 @@ class RecordScreenState extends ConsumerState<RecordScreen>
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: StandbyColors.surface2,
+                color: context.surface2,
                 borderRadius: BorderRadius.circular(StandbyRadius.sm),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.format_quote, size: 16, color: StandbyColors.text3),
+                  Icon(Icons.format_quote, size: 16, color: context.text3Color),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       anchorText,
                       style: TextStyle(
                         fontSize: 14,
-                        color: StandbyColors.text2,
+                        color: context.text2Color,
                         height: 1.5,
                       ),
                       maxLines: 3,
@@ -320,9 +297,9 @@ class RecordScreenState extends ConsumerState<RecordScreen>
             const SizedBox(height: 8),
             Row(
               children: [
-                Icon(Icons.arrow_forward_ios, size: 12, color: StandbyColors.text3),
+                Icon(Icons.arrow_forward_ios, size: 12, color: context.text3Color),
                 const SizedBox(width: 4),
-                Text('查看原文', style: TextStyle(fontSize: 12, color: StandbyColors.text3)),
+                Text('查看原文', style: TextStyle(fontSize: 12, color: context.text3Color)),
               ],
             ),
           ],

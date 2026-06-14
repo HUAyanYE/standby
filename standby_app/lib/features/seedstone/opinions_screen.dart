@@ -3,8 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../shared/services/api_service.dart';
 import '../../shared/models/seedstone.dart';
 import '../../app/theme.dart';
+import '../../app/theme_colors.dart';
 
-/// 感想列表页 — 显示某个心物下的所有感想
+/// 感想列表页 — 显示某个心物下的所有感受
 class OpinionsScreen extends ConsumerStatefulWidget {
   final Seedstone seedstone;
 
@@ -20,6 +21,28 @@ class _OpinionsScreenState extends ConsumerState<OpinionsScreen> {
   bool _loading = true;
   int _page = 1;
   bool _hasMore = true;
+
+  static const _prefixes = [
+    '夜的', '晨曦', '微风', '秋日', '冬雪', '春水', '夏雨', '远山',
+    '近海', '深林', '浅滩', '孤星', '流云', '闲鹤', '静湖', '暖阳',
+  ];
+  static const _suffixes = [
+    '旅人', '过客', '归人', '行者', '诗人', '歌者', '守望', '聆听',
+    '沉思', '静默', '观察', '等待', '漂流', '停泊', '游荡', '栖息',
+  ];
+  static const _avatars = [
+    '🌙', '☀️', '🌊', '🍂', '🌸', '❄️', '🌿', '🍃', '☁️', '⭐',
+    '🌻', '🍁', '🦋', '🐱', '🦊', '🐰', '🐻', '🐼', '🐨', '🦁',
+  ];
+
+  String _anonName(String userId) {
+    final hash = userId.hashCode.abs();
+    return '${_prefixes[hash % _prefixes.length]}${_suffixes[(hash ~/ _prefixes.length) % _suffixes.length]}';
+  }
+
+  String _anonAvatar(String userId) {
+    return _avatars[userId.hashCode.abs() % _avatars.length];
+  }
 
   @override
   void initState() {
@@ -44,7 +67,7 @@ class _OpinionsScreenState extends ConsumerState<OpinionsScreen> {
         pageSize: 20,
       );
       final list = (data['reactions'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-      
+
       setState(() {
         _opinions.addAll(list);
         _hasMore = list.length >= 20;
@@ -55,8 +78,10 @@ class _OpinionsScreenState extends ConsumerState<OpinionsScreen> {
     }
   }
 
-  String _timeAgo(int timestamp) {
-    final date = DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
+  String _formatTime(dynamic timestamp) {
+    final ts = (timestamp as num?)?.toInt() ?? 0;
+    final ms = ts > 1e12 ? ts : ts * 1000;
+    final date = DateTime.fromMillisecondsSinceEpoch(ms);
     final now = DateTime.now();
     final diff = now.difference(date);
 
@@ -67,11 +92,23 @@ class _OpinionsScreenState extends ConsumerState<OpinionsScreen> {
     return '${date.month}月${date.day}日';
   }
 
+  String? _emotionWordToString(dynamic value) {
+    if (value == null) return null;
+    final v = value is int ? value : int.tryParse(value.toString());
+    switch (v) {
+      case 1: return '同感';
+      case 2: return '触发';
+      case 3: return '启发';
+      case 4: return '震撼';
+      default: return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('感想'),
+        title: const Text('感受'),
       ),
       body: _opinions.isEmpty && _loading
           ? const Center(child: CircularProgressIndicator())
@@ -83,13 +120,13 @@ class _OpinionsScreenState extends ConsumerState<OpinionsScreen> {
                       const Text('💭', style: TextStyle(fontSize: 48)),
                       const SizedBox(height: 16),
                       Text(
-                        '还没有感想',
-                        style: TextStyle(fontSize: 16, color: StandbyColors.text2),
+                        '还没有感受',
+                        style: TextStyle(fontSize: 16, color: context.text2Color),
                       ),
                       const SizedBox(height: 8),
                       Text(
                         '第一个写下你的感受',
-                        style: TextStyle(fontSize: 14, color: StandbyColors.text3),
+                        style: TextStyle(fontSize: 14, color: context.text3Color),
                       ),
                     ],
                   ),
@@ -115,47 +152,67 @@ class _OpinionsScreenState extends ConsumerState<OpinionsScreen> {
   }
 
   Widget _buildOpinionCard(Map<String, dynamic> opinion) {
-    final textContent = opinion['text_content'] as String? ?? '';
-    final anonymousName = opinion['anonymous_name'] as String? ?? '匿名用户';
-    final anonymousAvatar = opinion['anonymous_avatar'] as String? ?? '🌙';
-    final createdAt = opinion['created_at'] as int? ?? 0;
+    final userId = (opinion['user_id'] as String?) ?? '';
+    final textContent = (opinion['text_content'] as String?) ?? (opinion['opinion_text'] as String?) ?? '';
+    final createdAt = (opinion['created_at'] as num?)?.toInt() ?? 0;
+    final emotionStr = _emotionWordToString(opinion['emotion_word']);
+
+    final name = userId.isNotEmpty ? _anonName(userId) : '无名者';
+    final avatar = userId.isNotEmpty ? _anonAvatar(userId) : '🌙';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: StandbyColors.surface1,
+        color: context.surface1,
         borderRadius: StandbyRadius.cardRadius,
-        border: Border.all(color: StandbyColors.border),
+        border: Border.all(color: context.borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Text(anonymousAvatar, style: const TextStyle(fontSize: 20)),
-              const SizedBox(width: 8),
+              Text(avatar, style: const TextStyle(fontSize: 22)),
+              const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  anonymousName,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: StandbyColors.text,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: context.textColor,
+                      ),
+                    ),
+                    Text(
+                      _formatTime(createdAt),
+                      style: TextStyle(fontSize: 11, color: context.text3Color),
+                    ),
+                  ],
                 ),
               ),
-              Text(
-                _timeAgo(createdAt),
-                style: const TextStyle(fontSize: 12, color: StandbyColors.text3),
-              ),
+              if (emotionStr != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: StandbyColors.primarySoft,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    emotionStr,
+                    style: const TextStyle(fontSize: 11, color: StandbyColors.primary, fontWeight: FontWeight.w500),
+                  ),
+                ),
             ],
           ),
           if (textContent.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Text(
               textContent,
-              style: StandbyTextStyles.body,
+              style: StandbyTextStyles.body.copyWith(height: 1.7),
             ),
           ],
         ],

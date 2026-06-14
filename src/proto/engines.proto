@@ -1,8 +1,21 @@
 // ============================================================
-// Standby — 引擎 gRPC 服务定义
+// Standby — Python 引擎 gRPC 服务定义
 // ============================================================
-// 4 个引擎: anchor / resonance / governance / context
-// 已移除 user_engine (匿名身份由 API 网关处理)
+// 此文件定义了 Python AI 引擎的 gRPC 接口。
+//
+// 注意: Rust 高性能计算服务 (resonance-service, governance-service)
+// 使用 HTTP/JSON 接口，不使用 gRPC。详见各服务的 OpenAPI 文档。
+//
+// Python 引擎 (使用此 proto):
+//   - anchor_engine (port 8090)
+//   - resonance_engine (port 8091)
+//   - governance_engine (port 8092)
+//   - context_engine (port 8094)
+//
+// Rust 引擎 (HTTP/JSON, 不使用此 proto):
+//   - resonance-service (port 8095) — POST /compute, GET /health
+//   - governance-service (port 8096) — POST /evaluate, POST /detect-anomaly, GET /health
+// ============================================================
 
 syntax = "proto3";
 package standby.engines;

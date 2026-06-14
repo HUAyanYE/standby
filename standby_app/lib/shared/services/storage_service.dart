@@ -16,6 +16,7 @@ class StorageService {
   static const String _keyDeviceFingerprint = 'device_fingerprint';
   static const String _keyMyReactions = 'my_reactions'; // 我的反应记录
   static const String _keyMyPosts = 'my_posts'; // 我的发布记录
+  static const String _keyThemeMode = 'theme_mode'; // 外观模式
 
   /// 初始化
   Future<void> init() async {
@@ -96,6 +97,14 @@ class StorageService {
 
   Future<void> clearMyPosts() async {
     await _prefs.remove(_keyMyPosts);
+  }
+
+  // ── 外观模式 ──────────────────────────────────────────
+
+  String get themeMode => _prefs.getString(_keyThemeMode) ?? 'dark';
+
+  Future<void> setThemeMode(String mode) async {
+    await _prefs.setString(_keyThemeMode, mode);
   }
 
   // ── 清除所有数据 ──────────────────────────────────────────

@@ -7,14 +7,53 @@ import '../features/profile/me_screen.dart';
 import '../features/confidant/confidant_page.dart';
 import '../features/seedstone/seedstone_detail_page.dart';
 import '../features/seedstone/publish_screen.dart';
+import '../features/profile/onboarding_screen.dart';
+import '../features/profile/register_screen.dart';
+import '../shared/services/storage_service.dart';
+import '../shared/utils/animations.dart';
 import 'shell_screen.dart';
 
-/// GoRouter 配置 — 命名路由
 final goRouterProvider = Provider<GoRouter>((ref) {
+  final storage = StorageService();
+
+  String initialLocation() {
+    if (!storage.isOnboardingDone) return '/onboarding';
+    if (!storage.isRegistered) return '/register';
+    return '/meet';
+  }
+
   return GoRouter(
-    initialLocation: '/meet',
+    initialLocation: initialLocation(),
     routes: [
-      // 底部导航 Shell Route
+      GoRoute(
+        path: '/onboarding',
+        name: 'onboarding',
+        builder: (context, state) => OnboardingScreen(
+          onDone: () {
+            storage.setOnboardingDone();
+            if (storage.isRegistered) {
+              context.go('/meet');
+            } else {
+              context.go('/register');
+            }
+          },
+        ),
+      ),
+      GoRoute(
+        path: '/register',
+        name: 'register',
+        builder: (context, state) => RegisterScreen(
+          onRegister: (nickname, avatar) async {
+            await storage.setUserIdentity({
+              'device_id': storage.deviceFingerprint ?? '',
+              'set_nickname': nickname,
+              'set_avatar': avatar,
+              'created_at': DateTime.now().millisecondsSinceEpoch,
+            });
+            context.go('/meet');
+          },
+        ),
+      ),
       ShellRoute(
         builder: (context, state, child) => ShellScreen(child: child),
         routes: [
@@ -48,23 +87,26 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           ),
         ],
       ),
-      // 独立页面（无底部导航）
       GoRoute(
         path: '/confidant',
         name: 'confidant',
-        builder: (context, state) => const ConfidantPage(),
+        pageBuilder: (context, state) => StandbyAnimations.fadeSlidePage(
+          const ConfidantPage(),
+        ),
       ),
       GoRoute(
         path: '/seedstone/:id',
         name: 'seedstoneDetail',
-        builder: (context, state) => SeedstoneDetailPage(
-          seedstoneId: state.pathParameters['id']!,
+        pageBuilder: (context, state) => StandbyAnimations.fadeSlidePage(
+          SeedstoneDetailPage(seedstoneId: state.pathParameters['id']!),
         ),
       ),
       GoRoute(
         path: '/publish',
         name: 'publish',
-        builder: (context, state) => const PublishScreen(),
+        pageBuilder: (context, state) => StandbyAnimations.fadeSlidePage(
+          const PublishScreen(),
+        ),
       ),
     ],
   );

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../app/theme.dart';
+import '../../app/theme_colors.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../shared/widgets/nickname_generator.dart';
 
@@ -168,7 +169,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: StandbyColors.background,
+      backgroundColor: context.bgColor,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -189,7 +190,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 '设置你的身份',
                 style: TextStyle(
                   fontSize: 16,
-                  color: StandbyColors.text2,
+                  color: context.text2Color,
                 ),
               ),
               const SizedBox(height: 48),
@@ -210,7 +211,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   onPressed: _register,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: StandbyColors.primary,
-                    foregroundColor: StandbyColors.background,
+                    foregroundColor: context.bgColor,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
@@ -237,7 +238,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           '选择你的昵称',
           style: TextStyle(
             fontSize: 14,
-            color: StandbyColors.text2,
+            color: context.text2Color,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -266,8 +267,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
           Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
-              color: StandbyColors.surface2,
-              border: Border.all(color: StandbyColors.border),
+              color: context.surface2,
+              border: Border.all(color: context.borderColor),
             ),
             child: Column(
               children: [
@@ -283,7 +284,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       decoration: BoxDecoration(
                         border: Border(
                           bottom: index < _suggestedNicknames.length - 1
-                              ? BorderSide(color: StandbyColors.border)
+                              ? BorderSide(color: context.borderColor)
                               : BorderSide.none,
                         ),
                       ),
@@ -293,13 +294,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             child: Text(
                               _suggestedNicknames[index],
                               style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: isSelected
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                                color: isSelected
-                                    ? StandbyColors.primary
-                                    : Colors.black87,
+                fontSize: 16,
+                  fontWeight: isSelected
+                      ? FontWeight.bold
+                      : FontWeight.normal,
+                  color: isSelected
+                      ? StandbyColors.primary
+                      : context.textColor,
                               ),
                             ),
                           ),
@@ -354,7 +355,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             icon: const Icon(Icons.refresh, size: 18),
             label: const Text('换一批'),
             style: TextButton.styleFrom(
-              foregroundColor: StandbyColors.text2,
+              foregroundColor: context.text2Color,
             ),
           ),
         ],
@@ -370,7 +371,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           '选择你的头像',
           style: TextStyle(
             fontSize: 14,
-            color: StandbyColors.text2,
+            color: context.text2Color,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -450,7 +451,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     border: Border.all(
                       color: isSelected
                           ? StandbyColors.primary
-                          : StandbyColors.text3,
+                          : context.text3Color,
                       width: isSelected ? 2 : 1,
                     ),
                   ),

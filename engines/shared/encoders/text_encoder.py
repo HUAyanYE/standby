@@ -5,11 +5,14 @@
 支持云端（BGE-base, 768维）和端侧（BGE-small, 512维）两种配置。
 """
 
+import logging
 import os
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class TextEncoder:
@@ -32,13 +35,13 @@ class TextEncoder:
         """延迟加载模型"""
         if self._model is None:
             from sentence_transformers import SentenceTransformer
-            print(f"加载编码模型: {self.model_name}...")
+            logger.info(f"加载编码模型: {self.model_name}...")
             self._model = SentenceTransformer(
                 self.model_name,
                 cache_folder=self._cache_dir,
                 device=self.device,
             )
-            print(f"模型加载完成 (维度: {self._model.get_sentence_embedding_dimension()})")
+            logger.info(f"模型加载完成 (维度: {self._model.get_sentence_embedding_dimension()})")
         return self._model
     
     @property

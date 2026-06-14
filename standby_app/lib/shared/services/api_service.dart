@@ -2,7 +2,6 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/constants/app_constants.dart';
-import '../models/request_status.dart';
 
 /// Standby API 服务 — 通过 REST 与 Gateway 通信
 ///
@@ -27,6 +26,7 @@ class ApiService {
   final FlutterSecureStorage _storage;
   String? _accessToken;
   String? _deviceFingerprint;
+  bool _authenticating = false;
 
   Dio get dio => _dio;
 
@@ -41,6 +41,14 @@ class ApiService {
 
   /// 是否已初始化（有有效 token）
   bool get isInitialized => _accessToken != null;
+
+  /// 解包网关响应 {success, data} → data
+  static dynamic _unwrap(dynamic respData) {
+    if (respData is Map<String, dynamic> && respData.containsKey('data')) {
+      return respData['data'];
+    }
+    return respData;
+  }
 
   /// 初始化: 加载或生成设备指纹 + 自动认证
   Future<void> init(String deviceFingerprint) async {
@@ -61,11 +69,22 @@ class ApiService {
         handler.next(options);
       },
       onError: (error, handler) async {
-        if (error.response?.statusCode == 401) {
-          final ok = await _authenticate();
-          if (ok) {
-            final retryResponse = await _dio.fetch(error.requestOptions);
-            return handler.resolve(retryResponse);
+        if (error.response?.statusCode == 401 && !_authenticating && _deviceFingerprint != null) {
+          _authenticating = true;
+          try {
+            final ok = await _authenticate();
+            if (ok) {
+              try {
+                final retryResponse = await _dio.fetch(error.requestOptions);
+                return handler.resolve(retryResponse);
+              } catch (_) {
+                // 重试也失败，返回原始错误
+              }
+            }
+          } catch (_) {
+            // 认证失败，返回原始错误
+          } finally {
+            _authenticating = false;
           }
         }
         handler.next(error);
@@ -74,7 +93,11 @@ class ApiService {
 
     // 如果没有 token, 执行认证
     if (_accessToken == null) {
-      await _authenticate();
+      try {
+        await _authenticate();
+      } catch (_) {
+        // 认证失败不影响应用启动
+      }
     }
   }
 
@@ -126,13 +149,13 @@ class ApiService {
     if (topicFilter != null) params['topic_filter'] = topicFilter;
 
     final resp = await _dio.get('/api/v1/anchors', queryParameters: params);
-    return resp.data;
+    return _unwrap(resp.data);
   }
 
   /// 获取锚点详情
   Future<Map<String, dynamic>> getAnchor(String anchorId) async {
     final resp = await _dio.get('/api/v1/anchors/$anchorId');
-    return resp.data;
+    return _unwrap(resp.data);
   }
 
   /// 创建锚点
@@ -150,13 +173,13 @@ class ApiService {
     if (topicHints != null) data['topic_hints'] = topicHints;
 
     final resp = await _dio.post('/api/v1/anchors', data: data);
-    return resp.data;
+    return _unwrap(resp.data);
   }
 
   /// 获取锚点的群体记忆
   Future<Map<String, dynamic>> getGroupMemory(String anchorId) async {
     final resp = await _dio.get('/api/v1/anchors/$anchorId/memory');
-    return resp.data;
+    return _unwrap(resp.data);
   }
 
   /// 获取感受链
@@ -168,7 +191,7 @@ class ApiService {
       '/api/v1/anchors/$anchorId/chain',
       queryParameters: {'max_depth': maxDepth},
     );
-    return resp.data;
+    return _unwrap(resp.data);
   }
 
   // ============================================================
@@ -190,7 +213,7 @@ class ApiService {
     if (emotionWord != null) data['emotion_word'] = emotionWord;
 
     final resp = await _dio.post('/api/v1/reactions', data: data);
-    return resp.data;
+    return _unwrap(resp.data);
   }
 
   /// 获取锚点的反应列表
@@ -207,13 +230,13 @@ class ApiService {
     };
     if (filterType != null) params['filter_type'] = filterType;
     final resp = await _dio.get('/api/v1/reactions', queryParameters: params);
-    return resp.data;
+    return _unwrap(resp.data);
   }
 
   /// 获取锚点反应分布
   Future<Map<String, dynamic>> getReactionDistribution(String anchorId) async {
     final resp = await _dio.get('/api/v1/reactions/distribution/$anchorId');
-    return resp.data;
+    return _unwrap(resp.data);
   }
 
   /// 获取共鸣踪迹
@@ -226,7 +249,7 @@ class ApiService {
       'page_size': pageSize,
     };
     final resp = await _dio.get('/api/v1/reactions', queryParameters: params);
-    return resp.data;
+    return _unwrap(resp.data);
   }
 
   // ============================================================
@@ -236,13 +259,13 @@ class ApiService {
   /// 查找共鸣对
   Future<Map<String, dynamic>> findResonancePairs(String userId) async {
     final resp = await _dio.get('/api/v1/relationships/$userId');
-    return resp.data;
+    return _unwrap(resp.data);
   }
 
   /// 获取关系列表
   Future<Map<String, dynamic>> getRelationships(String userId) async {
     final resp = await _dio.get('/api/v1/relationships/$userId');
-    return resp.data;
+    return _unwrap(resp.data);
   }
 
   /// 获取关系分
@@ -254,7 +277,7 @@ class ApiService {
       '/api/v1/relationships/score',
       queryParameters: {'user_a': userA, 'user_b': userB},
     );
-    return resp.data;
+    return _unwrap(resp.data);
   }
 
   // ============================================================
@@ -273,7 +296,7 @@ class ApiService {
       ...reactionSummary,
     };
     final resp = await _dio.post('/api/v1/governance/evaluate', data: data);
-    return resp.data;
+    return _unwrap(resp.data);
   }
 
   // ============================================================
@@ -301,7 +324,7 @@ class ApiService {
       '/api/v1/context/weights',
       queryParameters: {'topics': topics.join(',')},
     );
-    return resp.data;
+    return _unwrap(resp.data);
   }
 
   // ============================================================
@@ -313,6 +336,6 @@ class ApiService {
     final resp = await _dio.post('/api/v1/encode', data: {
       'texts': texts,
     });
-    return resp.data;
+    return _unwrap(resp.data);
   }
 }

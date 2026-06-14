@@ -23,11 +23,13 @@ class UserIdentity {
   /// 从 JSON 创建
   factory UserIdentity.fromJson(Map<String, dynamic> json) {
     return UserIdentity(
-      deviceId: json['device_id'] as String,
+      deviceId: (json['device_id'] as String?) ?? '',
       phoneHash: json['phone_hash'] as String?,
-      setNickname: json['set_nickname'] as String,
-      setAvatar: json['set_avatar'] as String,
-      createdAt: DateTime.fromMillisecondsSinceEpoch(json['created_at'] as int),
+      setNickname: (json['set_nickname'] as String?) ?? '旅人',
+      setAvatar: (json['set_avatar'] as String?) ?? '🌙',
+      createdAt: json['created_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(json['created_at'] as int)
+          : DateTime.now(),
     );
   }
 

@@ -1,0 +1,190 @@
+openapi: "3.0.3"
+info:
+  title: Standby Governance Service
+  description: |
+    Rust 高性能内容治理服务。
+
+    此服务提供内容治理评估和异常检测的 HTTP/JSON 接口，
+    供 Python governance_engine 通过 `rust_engine_client.py` 调用。
+
+    ## 架构位置
+    ```
+    Python governance_engine (gRPC:8092)
+      └─ rust_engine_client.py
+          └─ HTTP/JSON → governance-service (HTTP:8096)
+    ```
+  version: "0.1.0"
+
+servers:
+  - url: http://localhost:8096
+    description: 本地开发
+
+paths:
+  /health:
+    get:
+      summary: 健康检查
+      operationId: healthCheck
+      responses:
+        "200":
+          description: 服务健康
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+
+  /evaluate:
+    post:
+      summary: 评估内容治理
+      description: 评估内容的有害程度并决定治理级别。
+      operationId: evaluateContent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvaluateRequest"
+      responses:
+        "200":
+          description: 评估成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvaluateResponse"
+        "400":
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /detect-anomaly:
+    post:
+      summary: 检测异常行为
+      description: 检测内容或用户的异常模式。
+      operationId: detectAnomaly
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DetectAnomalyRequest"
+      responses:
+        "200":
+          description: 检测完成
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectAnomalyResponse"
+
+components:
+  schemas:
+    EvaluateRequest:
+      type: object
+      required:
+        - content_id
+        - content_type
+        - reaction_summary
+      properties:
+        content_id:
+          type: string
+          description: 内容 ID
+        content_type:
+          type: string
+          default: "anchor"
+          description: 内容类型
+        reaction_summary:
+          type: object
+          additionalProperties:
+            type: integer
+          description: 反应类型统计 {"共鸣": 10, "有害": 2, ...}
+        marker_credits:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+          nullable: true
+          description: 标记者信用分 {token_hash: credit_score}
+
+    EvaluateResponse:
+      type: object
+      properties:
+        content_id:
+          type: string
+        level:
+          type: string
+          enum: ["L0_NORMAL", "L1_OBSERVE", "L2_RESTRICT", "L3_REMOVE"]
+          description: 治理级别
+        harmful_weight:
+          type: number
+          format: double
+        marker_avg_credit:
+          type: number
+          format: double
+        reason:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+
+    DetectAnomalyRequest:
+      type: object
+      required:
+        - content_id
+        - content_type
+        - reactions
+      properties:
+        content_id:
+          type: string
+        content_type:
+          type: string
+        reactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReactionItem"
+
+    ReactionItem:
+      type: object
+      properties:
+        user_id:
+          type: string
+        reaction_type:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+
+    DetectAnomalyResponse:
+      type: object
+      properties:
+        vote_attack:
+          type: object
+          properties:
+            detected:
+              type: boolean
+            reason:
+              type: string
+        spam_attack:
+          type: object
+          properties:
+            detected:
+              type: boolean
+            reason:
+              type: string
+        type_attack:
+          type: object
+          properties:
+            detected:
+              type: boolean
+            reason:
+              type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string

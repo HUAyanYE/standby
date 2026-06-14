@@ -57,9 +57,12 @@ class ResonanceEngineServicer(EngineServicer):
         from shared.encoders.text_encoder import TextEncoder
         self.encoder = TextEncoder(model_name=str(models_dir / "bge-base-zh-v1.5"))
 
-        # 内存缓存 (热点数据, 持久化到 PostgreSQL)
-        self._anchors_cache = {}            # anchor_id → {text, topics, embedding}
+        # 内存缓存 (热点数据, 持久化到 PostgreSQL, 有大小限制)
+        from collections import OrderedDict
+        self._anchors_cache = OrderedDict()            # anchor_id → {text, topics, embedding}
+        self._anchors_cache_max = 1000
         self._opinion_embeddings_cache = {} # anchor_id → [np.ndarray]
+        self._opinion_cache_max = 500
 
         # NATS 事件客户端
         import os
@@ -74,8 +77,9 @@ class ResonanceEngineServicer(EngineServicer):
 
     def _load_anchor(self, anchor_id: str) -> dict | None:
         """从缓存/Redis/PG 加载锚点数据"""
-        # L1: 内存缓存
+        # L1: 内存缓存 (LRU)
         if anchor_id in self._anchors_cache:
+            self._anchors_cache.move_to_end(anchor_id)
             return self._anchors_cache[anchor_id]
 
         # L2: Redis 缓存
@@ -93,9 +97,11 @@ class ResonanceEngineServicer(EngineServicer):
                         "embedding": embedding,
                     }
                     self._anchors_cache[anchor_id] = anchor_data
+                    if len(self._anchors_cache) > self._anchors_cache_max:
+                        self._anchors_cache.popitem(last=False)
                     return anchor_data
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.debug(f"Redis 缓存读取失败: {e}")
 
         # L3: PostgreSQL
         try:
@@ -716,15 +722,25 @@ def main():
     config = EngineConfig.from_yaml("resonance_engine")
     servicer = ResonanceEngineServicer(config)
 
-    # 初始化 NATS 连接 (非阻塞, 失败则降级到 mock)
-    try:
-        loop = asyncio.new_event_loop()
-        loop.run_until_complete(servicer._nats.connect())
-        loop.close()
-        logging.getLogger(__name__).info("NATS 连接初始化完成")
-    except Exception as e:
-        logging.getLogger(__name__).warning(f"NATS 连接失败，降级到 mock 模式: {e}")
-        servicer._nats.use_mock = True
+    # 初始化 NATS 连接 (非阻塞, 失败则重试)
+    import asyncio
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            loop = asyncio.new_event_loop()
+            loop.run_until_complete(servicer._nats.connect())
+            loop.close()
+            logging.getLogger(__name__).info("NATS 连接初始化完成")
+            break
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logging.getLogger(__name__).warning(f"NATS 连接失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                import time
+                time.sleep(2 ** attempt)
+            else:
+                logging.getLogger(__name__).error(f"NATS 连接失败，所有重试已耗尽: {e}")
+                servicer._nats.use_mock = True
+                logging.getLogger(__name__).warning("降级到 mock 模式，事件将不会持久化")
 
     servicer.run()
 

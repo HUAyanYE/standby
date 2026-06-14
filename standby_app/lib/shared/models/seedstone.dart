@@ -95,17 +95,17 @@ class Seedstone {
 
   factory Seedstone.fromJson(Map<String, dynamic> json) {
     return Seedstone(
-      seedstoneId: json['anchor_id'] as String, // API 仍用 anchor_id
-      creatorId: json['creator_id'] as String? ?? '',
-      modality: _parseModality(json['modality'] as String? ?? 'text'),
-      textContent: json['text_content'] as String?,
+      seedstoneId: (json['anchor_id'] as String?) ?? (json['id'] as String?) ?? '',
+      creatorId: (json['creator_id'] as String?) ?? '',
+      modality: _parseModality((json['modality'] as String?) ?? 'text'),
+      textContent: (json['text_content'] as String?) ?? (json['text'] as String?),
       media: (json['media'] as List?)
           ?.map((m) => MediaRef.fromJson(m as Map<String, dynamic>))
           .toList() ?? [],
-      topics: (json['topics'] as List?)?.cast<String>() ?? [],
-      source: _parseSource(json['source'] as String? ?? 'user'),
+      topics: (json['topics'] as List?)?.map((e) => e.toString()).toList() ?? [],
+      source: _parseSource((json['source'] as String?) ?? 'user'),
       qualityScore: (json['quality_score'] as num?)?.toDouble() ?? 0.0,
-      createdAt: json['created_at'] as int? ?? 0,
+      createdAt: (json['created_at'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -171,12 +171,46 @@ class Seedstone {
   }
 }
 
+/// 反应类型枚举
+enum ReactionType {
+  resonance,      // 1: 共鸣
+  indifference,   // 2: 无感
+  opposition,     // 3: 反对
+  unexperienced,  // 4: 未体验
+  harmful,        // 5: 有害
+}
+
+/// 反应类型扩展
+extension ReactionTypeExtension on ReactionType {
+  String get label {
+    switch (this) {
+      case ReactionType.resonance: return '共鸣';
+      case ReactionType.indifference: return '无感';
+      case ReactionType.opposition: return '反对';
+      case ReactionType.unexperienced: return '未体验';
+      case ReactionType.harmful: return '有害';
+    }
+  }
+
+  int get code => index + 1;
+}
+
+/// 从int解析ReactionType
+ReactionType _parseReactionType(dynamic value) {
+  if (value == null) return ReactionType.resonance;
+  final v = value is int ? value : int.tryParse(value.toString());
+  if (v != null && v >= 1 && v <= ReactionType.values.length) {
+    return ReactionType.values[v - 1];
+  }
+  return ReactionType.resonance;
+}
+
 /// 反应模型
 class Reaction {
   final String reactionId;
   final String userId;
   final String seedstoneId;
-  final String reactionType;
+  final ReactionType reactionType;
   final String? emotionWord;
   final String modality;
   final String? textContent;
@@ -199,18 +233,18 @@ class Reaction {
 
   factory Reaction.fromJson(Map<String, dynamic> json) {
     return Reaction(
-      reactionId: json['reaction_id'] as String,
-      userId: json['user_id'] as String? ?? '',
-      seedstoneId: json['anchor_id'] as String, // API 仍用 anchor_id
-      reactionType: json['reaction_type'] as String,
+      reactionId: (json['reaction_id'] as String?) ?? (json['id']?.toString()) ?? '',
+      userId: (json['user_id'] as String?) ?? '',
+      seedstoneId: (json['anchor_id'] as String?) ?? '',
+      reactionType: _parseReactionType(json['reaction_type']),
       emotionWord: json['emotion_word'] as String?,
-      modality: json['modality'] as String? ?? 'text',
-      textContent: json['text_content'] as String?,
+      modality: (json['modality'] as String?) ?? 'text',
+      textContent: (json['text_content'] as String?) ?? (json['text'] as String?),
       media: (json['media'] as List?)
           ?.map((m) => MediaRef.fromJson(m as Map<String, dynamic>))
           .toList() ?? [],
       resonanceValue: (json['resonance_value'] as num?)?.toDouble(),
-      createdAt: json['created_at'] as int? ?? 0,
+      createdAt: (json['created_at'] as num?)?.toInt() ?? 0,
     );
   }
 }

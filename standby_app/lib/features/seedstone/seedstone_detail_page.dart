@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../shared/services/api_service.dart';
 import '../../shared/models/seedstone.dart';
 import '../../shared/widgets/media_preview.dart';
+import '../../shared/widgets/standby_empty_state.dart';
+import '../../shared/utils/anonymity.dart';
+import '../../shared/utils/formatters.dart';
 import '../../app/theme.dart';
+import '../../app/theme_colors.dart';
 
 /// 心物详情页 — 显示心物内容 + 感受链
 class SeedstoneDetailPage extends ConsumerStatefulWidget {
@@ -38,8 +43,14 @@ class _SeedstoneDetailPageState extends ConsumerState<SeedstoneDetailPage> {
       final anchorData = await _api.getAnchor(widget.seedstoneId);
       _seedstone = Seedstone.fromJson(anchorData);
 
-      final reactionsData = await _api.listReactions(widget.seedstoneId, pageSize: 50);
-      _reactions = (reactionsData['reactions'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      // 加载感受链（子心物列表）
+      final chainData = await _api.getFeelingChain(widget.seedstoneId);
+      final nodes = chainData['nodes'];
+      final List<dynamic> rawList = nodes is List ? nodes : [];
+      _reactions = rawList.map((e) {
+        if (e is Map<String, dynamic>) return e;
+        return Map<String, dynamic>.from(e as Map);
+      }).toList();
 
       setState(() => _loading = false);
     } catch (e) {
@@ -49,6 +60,10 @@ class _SeedstoneDetailPageState extends ConsumerState<SeedstoneDetailPage> {
       });
     }
   }
+
+  // ── 匿名身份：使用共享工具类 ──
+
+  // ── 情绪词映射：使用共享工具类 ──
 
   @override
   Widget build(BuildContext context) {
@@ -63,7 +78,7 @@ class _SeedstoneDetailPageState extends ConsumerState<SeedstoneDetailPage> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(_error!, style: const TextStyle(color: StandbyColors.text2)),
+                      Text(_error!, style: TextStyle(color: context.text2Color)),
                       const SizedBox(height: 16),
                       ElevatedButton(
                         onPressed: _loadData,
@@ -80,8 +95,8 @@ class _SeedstoneDetailPageState extends ConsumerState<SeedstoneDetailPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _buildSeedstoneCard(),
-                        const SizedBox(height: 24),
-                        _buildReactionChain(),
+                        const SizedBox(height: 32),
+                        _buildFeelingChain(),
                       ],
                     ),
                   ),
@@ -95,27 +110,22 @@ class _SeedstoneDetailPageState extends ConsumerState<SeedstoneDetailPage> {
       width: double.infinity,
       padding: StandbySpacing.cardPadding,
       decoration: BoxDecoration(
-        color: StandbyColors.surface1,
+        color: context.surface1,
         borderRadius: StandbyRadius.cardRadius,
-        border: Border.all(color: StandbyColors.border),
+        border: Border.all(color: context.borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 媒体
           if (seedstone.hasMedia && seedstone.primaryMedia != null) ...[
             MediaPreview(media: seedstone.primaryMedia!, height: 200),
             const SizedBox(height: 16),
           ],
-
-          // 文本内容
           if (seedstone.hasText)
             Text(
               seedstone.textContent!,
-              style: StandbyTextStyles.body.copyWith(height: 1.8),
+              style: StandbyTextStyles.body.copyWith(height: 1.8, fontSize: 16),
             ),
-
-          // 话题标签
           if (seedstone.topics.isNotEmpty) ...[
             const SizedBox(height: 16),
             Wrap(
@@ -141,103 +151,148 @@ class _SeedstoneDetailPageState extends ConsumerState<SeedstoneDetailPage> {
     );
   }
 
-  Widget _buildReactionChain() {
-    if (_reactions.isEmpty) {
-      return Container(
-        padding: StandbySpacing.cardPadding,
-        decoration: BoxDecoration(
-          color: StandbyColors.surface1,
-          borderRadius: StandbyRadius.cardRadius,
-          border: Border.all(color: StandbyColors.border),
-        ),
-        child: Center(
-          child: Column(
-            children: [
-              const Text('💭', style: TextStyle(fontSize: 32)),
-              const SizedBox(height: 12),
-              Text(
-                '还没有感受',
-                style: TextStyle(fontSize: 14, color: StandbyColors.text2),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '第一个写下你的感想',
-                style: TextStyle(fontSize: 12, color: StandbyColors.text3),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
+  Widget _buildFeelingChain() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Row(
+          children: [
+            Text('感受链', style: StandbyTextStyles.h3),
+            const SizedBox(width: 8),
+            Text(
+              '${_reactions.length}',
+              style: TextStyle(fontSize: 14, color: context.text3Color),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
         Text(
-          '感受链',
-          style: StandbyTextStyles.h3,
+          '每个人对这个心物的独立感受',
+          style: TextStyle(fontSize: 12, color: context.text3Color),
         ),
         const SizedBox(height: 16),
-        ..._reactions.map((reaction) => _buildReactionCard(reaction)),
+        if (_reactions.isEmpty)
+          const StandbyEmptyState(
+            emoji: '💭',
+            title: '还没有人留下感受',
+            description: '第一个写下你的感受吧',
+          )
+        else
+          ...List.generate(_reactions.length, (i) {
+            return Padding(
+              padding: EdgeInsets.only(bottom: i < _reactions.length - 1 ? 12 : 0),
+              child: _buildFeelingCard(_reactions[i]),
+            );
+          }),
       ],
     );
   }
 
-  Widget _buildReactionCard(Map<String, dynamic> reaction) {
-    final textContent = reaction['text_content'] as String? ?? '';
-    final anonymousName = reaction['anonymous_name'] as String? ?? '匿名用户';
-    final anonymousAvatar = reaction['anonymous_avatar'] as String? ?? '🌙';
-    final emotionWord = reaction['emotion_word'] as String?;
+  Widget _buildFeelingCard(Map<String, dynamic> reaction) {
+    final userId = (reaction['user_id'] as String?) ?? '';
+    final textContent = (reaction['text_content'] as String?) ?? (reaction['opinion_text'] as String?) ?? '';
+    final emotionStr = Formatters.emotionWordLabel(reaction['emotion_word']);
+    final createdAt = (reaction['created_at'] as num?)?.toInt() ?? 0;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: StandbyColors.surface2,
+    final name = userId.isNotEmpty ? Anonymity.nameFromId(userId) : '无名者';
+    final avatar = userId.isNotEmpty ? Anonymity.avatarFromId(userId) : '🌙';
+
+    final feelingAnchorId = (reaction['anchor_id'] as String?) ?? (reaction['reaction_id'] as String?) ?? '';
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         borderRadius: StandbyRadius.cardRadius,
-        border: Border.all(color: StandbyColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 匿名身份
-          Row(
-            children: [
-              Text(anonymousAvatar, style: const TextStyle(fontSize: 20)),
-              const SizedBox(width: 8),
-              Text(
-                anonymousName,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: StandbyColors.text,
+        splashColor: StandbyColors.primarySoft,
+        highlightColor: StandbyColors.primarySoft,
+        onTap: () {
+          if (feelingAnchorId.isNotEmpty) {
+            context.push('/seedstone/$feelingAnchorId');
+          }
+        },
+        child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: context.surface1,
+          borderRadius: StandbyRadius.cardRadius,
+          border: Border.all(color: context.borderColor),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 匿名身份行
+            Row(
+              children: [
+                Text(avatar, style: const TextStyle(fontSize: 22)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: context.textColor,
+                        ),
+                      ),
+                      if (createdAt > 0)
+                        Text(
+                          Formatters.formatTime(createdAt),
+                          style: TextStyle(fontSize: 11, color: context.text3Color),
+                        ),
+                    ],
+                  ),
                 ),
+                // 情绪标签
+                if (emotionStr != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: StandbyColors.primarySoft,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      emotionStr,
+                      style: const TextStyle(fontSize: 11, color: StandbyColors.primary, fontWeight: FontWeight.w500),
+                    ),
+                  ),
+              ],
+            ),
+
+            // 感受内容
+            if (textContent.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Text(
+                textContent,
+                style: TextStyle(fontSize: 16, height: 1.8, color: context.textColor),
               ),
-              if (emotionWord != null) ...[
+            ],
+
+            // 底部：独立心物入口
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(Icons.favorite_outline, size: 14, color: context.text3Color),
+                const SizedBox(width: 4),
+                Text(
+                  '我也有所感',
+                  style: TextStyle(fontSize: 12, color: context.text3Color),
+                ),
                 const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: StandbyColors.primarySoft,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    emotionWord,
-                    style: const TextStyle(fontSize: 11, color: StandbyColors.primary),
-                  ),
+                Text(
+                  '查看 →',
+                  style: TextStyle(fontSize: 12, color: StandbyColors.primary.withAlpha(180)),
                 ),
               ],
-            ],
-          ),
-          if (textContent.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text(
-              textContent,
-              style: StandbyTextStyles.body,
             ),
           ],
-        ],
+        ),
+      ),
       ),
     );
   }
+
 }

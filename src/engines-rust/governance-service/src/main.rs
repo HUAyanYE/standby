@@ -155,13 +155,18 @@ async fn handle_detect_anomaly(body: String) -> Result<impl warp::Reply, std::co
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
 
     let port: u16 = std::env::var("PORT")
         .unwrap_or_else(|_| "8096".into())
         .parse()?;
 
-    println!("Governance Service 启动在 0.0.0.0:{}", port);
+    tracing::info!("Governance Service 启动在 0.0.0.0:{}", port);
 
     // GET /health
     let health = warp::get()
@@ -169,25 +174,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and(warp::path::end())
         .map(|| warp::reply::json(&serde_json::json!({"status": "ok"})));
 
-    // POST /evaluate
+    // POST /evaluate (带请求体大小限制)
     let evaluate = warp::post()
         .and(warp::path("evaluate"))
+        .and(warp::body::content_length_limit(1024 * 1024)) // 1MB
         .and(warp::body::bytes().map(|bytes: bytes::Bytes| {
             String::from_utf8_lossy(&bytes).to_string()
         }))
         .and_then(handle_evaluate);
 
-    // POST /detect-anomaly
+    // POST /detect-anomaly (带请求体大小限制)
     let detect = warp::post()
         .and(warp::path("detect-anomaly"))
+        .and(warp::body::content_length_limit(1024 * 1024)) // 1MB
         .and(warp::body::bytes().map(|bytes: bytes::Bytes| {
             String::from_utf8_lossy(&bytes).to_string()
         }))
         .and_then(handle_detect_anomaly);
 
-    warp::serve(health.or(evaluate).or(detect))
-        .run(([0, 0, 0, 0], port))
-        .await;
+    let (_, server) = warp::serve(health.or(evaluate).or(detect))
+        .bind_with_graceful_shutdown(
+            ([0, 0, 0, 0], port),
+            async {
+                tokio::signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
+                tracing::info!("收到关闭信号，正在优雅关闭...");
+            },
+        );
+
+    server.await;
 
     Ok(())
 }

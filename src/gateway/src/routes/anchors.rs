@@ -14,6 +14,7 @@ pub async fn create_anchor(
     Extension(_claims): Extension<Claims>,
     Json(req): Json<GenerateAnchorRequest>,
 ) -> Result<Json<SuccessResponse<serde_json::Value>>, ApiError> {
+    req.validate().map_err(ApiError::BadRequest)?;
     let mut client = state.engines.anchor.as_ref().clone();
     let (anchor_id, quality_score) = client.generate_anchor(req).await?;
 
@@ -65,13 +66,8 @@ pub async fn get_feeling_chain(
     Path(anchor_id): Path<String>,
     Query(params): Query<FeelingChainParams>,
 ) -> Result<Json<SuccessResponse<Vec<FeelingChainNode>>>, ApiError> {
-    let max_depth = params.max_depth.unwrap_or(3);
+    let max_depth = params.validated_max_depth();
     let mut client = state.engines.anchor.as_ref().clone();
     let nodes = client.get_feeling_chain(&anchor_id, max_depth).await?;
     Ok(Json(SuccessResponse::ok(nodes)))
-}
-
-#[derive(serde::Deserialize)]
-pub struct FeelingChainParams {
-    pub max_depth: Option<i32>,
 }

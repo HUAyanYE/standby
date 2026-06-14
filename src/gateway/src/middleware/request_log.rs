@@ -7,12 +7,13 @@ use crate::AppState;
 
 /// 请求日志中间件
 ///
-/// 记录: 方法、路径、状态码、耗时、设备 ID
+/// 记录: request_id、方法、路径、状态码、耗时、设备 ID
 pub async fn request_log(
     State(_state): State<AppState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
+    let request_id = uuid::Uuid::new_v4().to_string();
     let method = request.method().clone();
     let uri = request.uri().clone();
     let path = uri.path().to_string();
@@ -25,6 +26,9 @@ pub async fn request_log(
         .unwrap_or("-")
         .to_string();
 
+    // 将 request_id 注入请求扩展，供后续中间件和处理器使用
+    request.extensions_mut().insert(request_id.clone());
+
     let start = std::time::Instant::now();
     let response = next.run(request).await;
     let duration = start.elapsed();
@@ -32,6 +36,7 @@ pub async fn request_log(
     let status = response.status().as_u16();
 
     info!(
+        request_id = %request_id,
         method = %method,
         path = %path,
         status = status,

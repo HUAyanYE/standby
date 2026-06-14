@@ -98,7 +98,11 @@ async fn main() -> anyhow::Result<()> {
 
     let cors = CorsLayer::new()
         .allow_origin(allowed_origins)
-        .allow_methods(Any)
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::OPTIONS,
+        ])
         .allow_headers(vec![
             header::AUTHORIZATION,
             header::CONTENT_TYPE,
@@ -138,16 +142,16 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/context/weights", axum::routing::get(routes::context::get_weights))
         // 编码路由
         .route("/api/v1/encode", axum::routing::post(routes::reactions::encode_text))
-        // 中间件 (从外到内)
+        // 中间件 — Axum .layer() 最后添加的最先执行
+        // 执行顺序: request_log → rate_limit → jwt_auth → device_auth → handler
         .layer(from_fn_with_state(state.clone(), request_log::request_log))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
-        // JWT 验证
-        .layer(from_fn_with_state(state.clone(), jwt::jwt_auth))
-        // 设备认证
-        .layer(from_fn_with_state(state.clone(), device_auth::device_auth))
-        // 速率限制
         .layer(from_fn_with_state(rate_limiter, rate_limit::rate_limit))
+        // 设备认证 (需要在 JWT 之后，因为依赖 Claims)
+        .layer(from_fn_with_state(state.clone(), device_auth::device_auth))
+        // JWT 验证 (先于设备认证执行)
+        .layer(from_fn_with_state(state.clone(), jwt::jwt_auth))
         .with_state(state);
 
     // 启动服务

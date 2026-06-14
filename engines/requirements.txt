@@ -3,6 +3,7 @@
 # 核心
 numpy>=1.24
 pyyaml>=6.0
+boto3>=1.34
 
 # gRPC
 grpcio>=1.60

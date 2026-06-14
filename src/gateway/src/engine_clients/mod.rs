@@ -2,16 +2,17 @@ pub mod anchor;
 pub mod resonance;
 pub mod governance;
 pub mod context;
+pub mod retry;
 
 use std::sync::Arc;
 
 /// 聚合所有引擎客户端
 #[derive(Clone)]
 pub struct EngineClients {
-    pub anchor: Arc<anchor::AnchorClient>,
-    pub resonance: Arc<resonance::ResonanceClient>,
-    pub governance: Arc<governance::GovernanceClient>,
-    pub context: Arc<context::ContextClient>,
+    pub(crate) anchor: Arc<anchor::AnchorClient>,
+    pub(crate) resonance: Arc<resonance::ResonanceClient>,
+    pub(crate) governance: Arc<governance::GovernanceClient>,
+    pub(crate) context: Arc<context::ContextClient>,
 }
 
 impl EngineClients {

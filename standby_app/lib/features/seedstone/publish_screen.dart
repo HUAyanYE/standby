@@ -8,6 +8,7 @@ import '../../shared/services/media_service.dart';
 import '../../shared/services/storage_service.dart';
 import '../../shared/widgets/media_preview.dart';
 import '../../app/theme.dart';
+import '../../app/theme_colors.dart';
 
 /// 发布页 — 创建心物/感想
 class PublishScreen extends ConsumerStatefulWidget {
@@ -80,15 +81,19 @@ class _PublishScreenState extends ConsumerState<PublishScreen> {
       // 上传媒体文件
       List<String> mediaIds = [];
       for (final file in _mediaFiles) {
-        final mediaInfo = MediaFileInfo(
-          file: file,
-          type: MediaType.image,
-          mimeType: 'image/jpeg',
-          fileSizeBytes: file.lengthSync(),
-        );
-        final result = await _mediaService.uploadMedia(mediaInfo);
-        if (result['media_id'] != null) {
-          mediaIds.add(result['media_id'] as String);
+        try {
+          final mediaInfo = MediaFileInfo(
+            file: file,
+            type: MediaType.image,
+            mimeType: 'image/jpeg',
+            fileSizeBytes: file.lengthSync(),
+          );
+          final result = await _mediaService.uploadMedia(mediaInfo);
+          if (result['media_id'] != null) {
+            mediaIds.add(result['media_id'] as String);
+          }
+        } catch (e) {
+          debugPrint('媒体上传失败: $e');
         }
       }
 
@@ -106,7 +111,7 @@ class _PublishScreenState extends ConsumerState<PublishScreen> {
       }
 
       final result = await _api.createAnchor(
-        sourceTexts: [anchorText],
+        sourceTexts: anchorText.isNotEmpty ? [anchorText] : [' '],
         topicHints: _topics.isNotEmpty ? _topics : null,
         modality: modality,
       );
@@ -180,15 +185,14 @@ class _PublishScreenState extends ConsumerState<PublishScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 什么触动了你
             Text('什么触动了你?', style: StandbyTextStyles.h3),
             const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: StandbyColors.surface1,
+                color: context.surface1,
                 borderRadius: StandbyRadius.cardRadius,
-                border: Border.all(color: StandbyColors.border),
+                border: Border.all(color: context.borderColor),
               ),
               child: TextField(
                 controller: _anchorController,
@@ -196,7 +200,7 @@ class _PublishScreenState extends ConsumerState<PublishScreen> {
                 style: StandbyTextStyles.body,
                 decoration: InputDecoration(
                   hintText: '写下触动你的事物...',
-                  hintStyle: TextStyle(color: StandbyColors.text3),
+                  hintStyle: TextStyle(color: context.text3Color),
                   border: InputBorder.none,
                 ),
               ),
@@ -241,11 +245,11 @@ class _PublishScreenState extends ConsumerState<PublishScreen> {
                     width: 100,
                     height: 100,
                     decoration: BoxDecoration(
-                      color: StandbyColors.surface2,
+                      color: context.surface2,
                       borderRadius: StandbyRadius.buttonRadius,
-                      border: Border.all(color: StandbyColors.border),
+                      border: Border.all(color: context.borderColor),
                     ),
-                    child: const Icon(Icons.add_photo_alternate_outlined, color: StandbyColors.text3),
+                    child: Icon(Icons.add_photo_alternate_outlined, color: context.text3Color),
                   ),
                 ),
               ],
@@ -262,24 +266,24 @@ class _PublishScreenState extends ConsumerState<PublishScreen> {
                 ..._topics.map((topic) => Chip(
                   label: Text('#$topic'),
                   onDeleted: () => _removeTopic(topic),
-                  backgroundColor: StandbyColors.surface2,
+                  backgroundColor: context.surface2,
                   labelStyle: const TextStyle(color: StandbyColors.primary),
-                  deleteIconColor: StandbyColors.text3,
+                  deleteIconColor: context.text3Color,
                 )),
                 if (_topics.length < 5)
                   SizedBox(
                     width: 120,
                     child: TextField(
                       controller: _topicController,
-                      style: const TextStyle(fontSize: 14, color: StandbyColors.text),
+                      style: TextStyle(fontSize: 14, color: context.textColor),
                       decoration: InputDecoration(
                         hintText: '添加话题',
-                        hintStyle: TextStyle(color: StandbyColors.text3, fontSize: 14),
+                        hintStyle: TextStyle(color: context.text3Color, fontSize: 14),
                         isDense: true,
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         border: OutlineInputBorder(
                           borderRadius: StandbyRadius.tagRadius,
-                          borderSide: const BorderSide(color: StandbyColors.border),
+                          borderSide: BorderSide(color: context.borderColor),
                         ),
                       ),
                       onSubmitted: _addTopic,
@@ -289,15 +293,14 @@ class _PublishScreenState extends ConsumerState<PublishScreen> {
             ),
             const SizedBox(height: 32),
 
-            // 你的感受
             Text('你的感受:', style: StandbyTextStyles.h3),
             const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: StandbyColors.surface1,
+                color: context.surface2,
                 borderRadius: StandbyRadius.cardRadius,
-                border: Border.all(color: StandbyColors.border),
+                border: Border.all(color: StandbyColors.primarySoft),
               ),
               child: TextField(
                 controller: _feelingController,
@@ -305,7 +308,7 @@ class _PublishScreenState extends ConsumerState<PublishScreen> {
                 style: StandbyTextStyles.body,
                 decoration: InputDecoration(
                   hintText: '写下你的感受（可选）...',
-                  hintStyle: TextStyle(color: StandbyColors.text3),
+                  hintStyle: TextStyle(color: context.text3Color),
                   border: InputBorder.none,
                 ),
               ),

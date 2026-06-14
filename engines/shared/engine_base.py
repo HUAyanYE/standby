@@ -7,13 +7,17 @@ Standby AI 引擎 — gRPC 服务基类
 - 请求日志
 - 错误处理
 - 配置加载
+- NATS 事件发布
 
 各引擎继承此基类, 实现具体的 RPC 方法。
 """
 
+import asyncio
+import functools
 import logging
 import signal
 import sys
+import threading
 import time
 from concurrent import futures
 from dataclasses import dataclass
@@ -85,18 +89,61 @@ class EngineServicer:
         self._start_time = time.time()
         self._request_count = 0
         self._error_count = 0
-        
-        # 配置日志
-        logging.basicConfig(
-            level=getattr(logging, config.log_level),
-            format=f"[{config.engine_name}] %(asctime)s %(levelname)s %(message)s",
-        )
-        
-        logger.info(f"初始化 {config.engine_name} 引擎")
+        self._logger = logging.getLogger(config.engine_name)
+
+        # 设置引擎专用 logger 级别 (不影响 root logger)
+        self._logger.setLevel(getattr(logging, config.log_level, logging.INFO))
+
+        # 添加 handler (如果还没有)
+        if not self._logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter(
+                f"[{config.engine_name}] %(asctime)s %(levelname)s %(message)s"
+            ))
+            self._logger.addHandler(handler)
+            self._logger.propagate = False
+
+        self._logger.info(f"初始化 {config.engine_name} 引擎")
     
     def register_services(self, server: grpc.Server):
         """注册 gRPC 服务到 server (子类实现)"""
         raise NotImplementedError
+
+    def _init_nats(self, nats_client):
+        """初始化 NATS 客户端 (在子类 __init__ 中调用)"""
+        self._nats = nats_client
+        self._nats_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._nats_thread: Optional[threading.Thread] = None
+
+    def _publish_event_async(self, event):
+        """非阻塞发布 NATS 事件 (使用持久化事件循环)"""
+        if not hasattr(self, '_nats') or self._nats is None:
+            logger.warning("NATS 未初始化，跳过事件发布")
+            return
+
+        # 懒初始化持久化事件循环线程
+        if self._nats_loop is None:
+            self._nats_loop = asyncio.new_event_loop()
+            self._nats_thread = threading.Thread(
+                target=self._run_nats_loop, daemon=True
+            )
+            self._nats_thread.start()
+
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self._nats.publish(event), self._nats_loop
+            )
+            future.add_done_callback(
+                lambda f: logger.warning(f"NATS 发布失败: {f.exception()}")
+                if f.exception() else None
+            )
+        except Exception as e:
+            logger.warning(f"NATS 事件发布调度失败: {e}")
+
+    def _run_nats_loop(self):
+        """NATS 事件循环后台线程"""
+        asyncio.set_event_loop(self._nats_loop)
+        self._nats_loop.run_forever()
     
     def health_check(self) -> dict:
         """健康检查"""
@@ -114,10 +161,10 @@ class EngineServicer:
         self._request_count += 1
         if not success:
             self._error_count += 1
-        
+
         level = logging.INFO if success else logging.WARNING
         status = "OK" if success else "ERROR"
-        logger.log(level, f"{method} {status} {duration_ms:.1f}ms")
+        self._logger.log(level, f"{method} {status} {duration_ms:.1f}ms")
     
     def run(self):
         """启动 gRPC 服务"""
@@ -158,6 +205,7 @@ class EngineServicer:
 
 def timing_decorator(func):
     """请求计时装饰器 — 同时支持 gRPC 和本地调用"""
+    @functools.wraps(func)
     def wrapper(self, request, context=None):
         start = time.perf_counter()
         try:

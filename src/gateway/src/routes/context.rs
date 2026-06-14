@@ -14,6 +14,7 @@ pub async fn submit_context(
     Extension(claims): Extension<Claims>,
     Json(req): Json<SubmitContextRequest>,
 ) -> Result<Json<SuccessResponse<serde_json::Value>>, ApiError> {
+    req.validate().map_err(ApiError::BadRequest)?;
     let mut client = state.engines.context.as_ref().clone();
     let accepted = client.submit_context(&claims.sub, req).await?;
     Ok(Json(SuccessResponse::ok(serde_json::json!({

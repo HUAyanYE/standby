@@ -272,14 +272,41 @@ class NATSClient:
         else:
             priority = EventPriority.STANDARD
         
+        # 已处理事件集合 (幂等性)
+        processed_events = set()
+        processed_events_max = 10000
+        max_retries = 3
+        
         async def message_handler(msg):
             try:
                 event = Event.from_json(msg.data)
+                
+                # 幂等性检查
+                if event.event_id in processed_events:
+                    logger.debug(f"跳过重复事件: {event.event_id}")
+                    await msg.ack()
+                    return
+                
                 await callback(event)
                 await msg.ack()
+                
+                # 记录已处理事件
+                processed_events.add(event.event_id)
+                if len(processed_events) > processed_events_max:
+                    # 简单淘汰: 清空一半
+                    to_remove = list(processed_events)[:processed_events_max // 2]
+                    for eid in to_remove:
+                        processed_events.discard(eid)
+                        
             except Exception as e:
                 logger.error(f"处理事件失败: {e}")
-                await msg.nak()
+                # 检查重试次数 (通过 metadata)
+                metadata = msg.metadata
+                if metadata and hasattr(metadata, 'num_delivered') and metadata.num_delivered >= max_retries:
+                    logger.warning(f"事件 {event.event_id if 'event' in locals() else 'unknown'} 超过最大重试次数，丢弃")
+                    await msg.ack()  # 丢弃而非无限重试
+                else:
+                    await msg.nak()
         
         if priority in (EventPriority.CRITICAL, EventPriority.STANDARD):
             # JetStream 订阅 (带持久化)

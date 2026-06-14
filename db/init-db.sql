@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS anchors (
     quality_score   REAL NOT NULL DEFAULT 0.0,          -- 质量评分 0-1
     is_seedstone    BOOLEAN NOT NULL DEFAULT FALSE,     -- 是否被识别为心物
     seedstone_confidence REAL DEFAULT 0.0,              -- 心物置信度
+    parent_anchor_id TEXT REFERENCES anchors(id) ON DELETE SET NULL,  -- 感受链：父心物 ID
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -74,11 +75,13 @@ CREATE TABLE IF NOT EXISTS reactions (
     id                  BIGSERIAL PRIMARY KEY,
     user_id             TEXT NOT NULL,                      -- 用户内部令牌哈希
     anchor_id           TEXT NOT NULL REFERENCES anchors(id) ON DELETE CASCADE,
-    reaction_type       TEXT NOT NULL,                      -- 共鸣/无感/反对/未体验/有害
-    emotion_word        TEXT,                               -- 情绪词: 同感/触发/启发/震撼
-    modality            TEXT NOT NULL DEFAULT 'text',       -- 模态
-    text_content        TEXT,                               -- 观点文本
-    resonance_value     REAL DEFAULT 0.0,                   -- 共鸣值
+    reaction_type       TEXT NOT NULL
+        CHECK (reaction_type IN ('共鸣', '无感', '反对', '未体验', '有害')),
+    emotion_word        TEXT
+        CHECK (emotion_word IS NULL OR emotion_word IN ('同感', '触发', '启发', '震撼')),
+    modality            TEXT NOT NULL DEFAULT 'text',
+    text_content        TEXT,
+    resonance_value     REAL DEFAULT 0.0,
     parent_reaction_id  BIGINT REFERENCES reactions(id),    -- 父反应 (感受链)
     root_reaction_id    BIGINT REFERENCES reactions(id),    -- 根反应 (感受链)
     depth               SMALLINT NOT NULL DEFAULT 0,        -- 深度 (感受链层级)
@@ -91,6 +94,7 @@ CREATE INDEX IF NOT EXISTS idx_reactions_type ON reactions(reaction_type);
 CREATE INDEX IF NOT EXISTS idx_reactions_parent ON reactions(parent_reaction_id) WHERE parent_reaction_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_reactions_root ON reactions(root_reaction_id) WHERE root_reaction_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_reactions_created_at ON reactions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_reactions_anchor_type ON reactions(anchor_id, reaction_type);
 
 -- ============================================================
 -- 5. 共鸣向量表 (pgvector)

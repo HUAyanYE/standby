@@ -9,6 +9,7 @@ Rust 服务端口:
 - governance-service: 8096 (HTTP/JSON)
 """
 
+import asyncio
 import logging
 import os
 from typing import Optional
@@ -17,7 +18,6 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Rust 服务地址 (从环境变量读取)
 RESONANCE_SERVICE_URL = os.environ.get(
     "RUST_RESONANCE_URL", "http://localhost:8095"
 )
@@ -25,18 +25,47 @@ GOVERNANCE_SERVICE_URL = os.environ.get(
     "RUST_GOVERNANCE_URL", "http://localhost:8096"
 )
 
-# 请求超时 (秒)
 REQUEST_TIMEOUT = float(os.environ.get("RUST_ENGINE_TIMEOUT", "5.0"))
 
 
 class RustEngineError(Exception):
-    """Rust 引擎调用异常"""
     pass
 
 
-# ============================================================
-# Resonance Service 客户端
-# ============================================================
+# 长生命周期客户端 (复用连接池)
+_async_client: Optional[httpx.AsyncClient] = None
+_sync_client: Optional[httpx.Client] = None
+
+
+def _get_async_client() -> httpx.AsyncClient:
+    global _async_client
+    if _async_client is None or _async_client.is_closed:
+        _async_client = httpx.AsyncClient(
+            timeout=REQUEST_TIMEOUT,
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
+    return _async_client
+
+
+def _get_sync_client() -> httpx.Client:
+    global _sync_client
+    if _sync_client is None or _sync_client.is_closed:
+        _sync_client = httpx.Client(
+            timeout=REQUEST_TIMEOUT,
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
+    return _sync_client
+
+
+async def close_clients():
+    global _async_client, _sync_client
+    if _async_client and not _async_client.is_closed:
+        await _async_client.aclose()
+        _async_client = None
+    if _sync_client and not _sync_client.is_closed:
+        _sync_client.close()
+        _sync_client = None
+
 
 async def call_resonance_compute(
     user_id: str,
@@ -47,10 +76,10 @@ async def call_resonance_compute(
     existing_embeddings: list[list[float]],
     opinion_text: Optional[str] = None,
     emotion_word: Optional[str] = None,
+    harmful_ratio: float = 0.0,
+    unexperienced_ratio: float = 0.0,
 ) -> dict:
-    """调用 Rust resonance-service 的 /compute 端点"""
     url = f"{RESONANCE_SERVICE_URL}/compute"
-
     payload = {
         "user_id": user_id,
         "anchor_id": anchor_id,
@@ -58,36 +87,35 @@ async def call_resonance_compute(
         "opinion_embedding": opinion_embedding,
         "anchor_embedding": anchor_embedding,
         "existing_embeddings": existing_embeddings,
+        "harmful_ratio": harmful_ratio,
+        "unexperienced_ratio": unexperienced_ratio,
     }
-
     if opinion_text:
         payload["opinion_text"] = opinion_text
     if emotion_word:
         payload["emotion_word"] = emotion_word
 
     try:
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            response = await client.post(url, json=payload)
+        client = _get_async_client()
+        response = await client.post(url, json=payload)
 
-            if response.status_code != 200:
-                raise RustEngineError(
-                    f"Rust 服务返回 {response.status_code}: {response.text}"
-                )
+        if response.status_code != 200:
+            raise RustEngineError(
+                f"Rust 服务返回 {response.status_code}: {response.text}"
+            )
 
-            data = response.json()
-
-            if "error" in data:
-                raise RustEngineError(f"Rust 服务错误: {data['error']}")
-
-            return data
+        data = response.json()
+        if "error" in data:
+            raise RustEngineError(f"Rust 服务错误: {data['error']}")
+        return data
 
     except httpx.TimeoutException:
         raise RustEngineError(f"Rust 服务超时 ({REQUEST_TIMEOUT}s)")
     except httpx.ConnectError:
         raise RustEngineError(f"无法连接 Rust 服务: {url}")
+    except RustEngineError:
+        raise
     except Exception as e:
-        if isinstance(e, RustEngineError):
-            raise
         raise RustEngineError(f"Rust 服务调用异常: {e}")
 
 
@@ -100,10 +128,10 @@ def call_resonance_compute_sync(
     existing_embeddings: list[list[float]],
     opinion_text: Optional[str] = None,
     emotion_word: Optional[str] = None,
+    harmful_ratio: float = 0.0,
+    unexperienced_ratio: float = 0.0,
 ) -> dict:
-    """同步版本的 Rust resonance-service 调用"""
     url = f"{RESONANCE_SERVICE_URL}/compute"
-
     payload = {
         "user_id": user_id,
         "anchor_id": anchor_id,
@@ -111,194 +139,111 @@ def call_resonance_compute_sync(
         "opinion_embedding": opinion_embedding,
         "anchor_embedding": anchor_embedding,
         "existing_embeddings": existing_embeddings,
+        "harmful_ratio": harmful_ratio,
+        "unexperienced_ratio": unexperienced_ratio,
     }
-
     if opinion_text:
         payload["opinion_text"] = opinion_text
     if emotion_word:
         payload["emotion_word"] = emotion_word
 
     try:
-        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
-            response = client.post(url, json=payload)
+        client = _get_sync_client()
+        response = client.post(url, json=payload)
 
-            if response.status_code != 200:
-                raise RustEngineError(
-                    f"Rust 服务返回 {response.status_code}: {response.text}"
-                )
+        if response.status_code != 200:
+            raise RustEngineError(
+                f"Rust 服务返回 {response.status_code}: {response.text}"
+            )
 
-            data = response.json()
-
-            if "error" in data:
-                raise RustEngineError(f"Rust 服务错误: {data['error']}")
-
-            return data
+        data = response.json()
+        if "error" in data:
+            raise RustEngineError(f"Rust 服务错误: {data['error']}")
+        return data
 
     except httpx.TimeoutException:
         raise RustEngineError(f"Rust 服务超时 ({REQUEST_TIMEOUT}s)")
     except httpx.ConnectError:
         raise RustEngineError(f"无法连接 Rust 服务: {url}")
+    except RustEngineError:
+        raise
     except Exception as e:
-        if isinstance(e, RustEngineError):
-            raise
         raise RustEngineError(f"Rust 服务调用异常: {e}")
 
 
-# ============================================================
-# Governance Service 客户端
-# ============================================================
-
 async def call_governance_evaluate(
-    anchor_id: str,
-    resonance: int,
-    neutral: int,
-    opposition: int,
-    unexperienced: int,
-    harmful: int,
-    marker_credits: list[float],
-    base_threshold: float = 0.15,
-    min_samples: int = 10,
-    current_ts: float = 0.0,
+    content_id: str,
+    content_type: str,
+    reaction_summary: dict,
+    marker_credits: Optional[dict] = None,
 ) -> dict:
-    """调用 Rust governance-service 的 /evaluate 端点"""
     url = f"{GOVERNANCE_SERVICE_URL}/evaluate"
-
     payload = {
-        "anchor_id": anchor_id,
-        "resonance": resonance,
-        "neutral": neutral,
-        "opposition": opposition,
-        "unexperienced": unexperienced,
-        "harmful": harmful,
-        "marker_credits": marker_credits,
-        "base_threshold": base_threshold,
-        "min_samples": min_samples,
-        "current_ts": current_ts,
+        "content_id": content_id,
+        "content_type": content_type,
+        "reaction_summary": reaction_summary,
     }
+    if marker_credits:
+        payload["marker_credits"] = marker_credits
 
     try:
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            response = await client.post(url, json=payload)
+        client = _get_async_client()
+        response = await client.post(url, json=payload)
 
-            if response.status_code != 200:
-                raise RustEngineError(
-                    f"Rust 治理服务返回 {response.status_code}: {response.text}"
-                )
+        if response.status_code != 200:
+            raise RustEngineError(
+                f"Rust governance 服务返回 {response.status_code}: {response.text}"
+            )
 
-            data = response.json()
-
-            if "error" in data:
-                raise RustEngineError(f"Rust 治理服务错误: {data['error']}")
-
-            return data
+        data = response.json()
+        if "error" in data:
+            raise RustEngineError(f"Rust governance 服务错误: {data['error']}")
+        return data
 
     except httpx.TimeoutException:
-        raise RustEngineError(f"Rust 治理服务超时 ({REQUEST_TIMEOUT}s)")
+        raise RustEngineError(f"Rust governance 服务超时 ({REQUEST_TIMEOUT}s)")
     except httpx.ConnectError:
-        raise RustEngineError(f"无法连接 Rust 治理服务: {url}")
+        raise RustEngineError(f"无法连接 Rust governance 服务: {url}")
+    except RustEngineError:
+        raise
     except Exception as e:
-        if isinstance(e, RustEngineError):
-            raise
-        raise RustEngineError(f"Rust 治理服务调用异常: {e}")
+        raise RustEngineError(f"Rust governance 服务调用异常: {e}")
 
 
 def call_governance_evaluate_sync(
-    anchor_id: str,
-    resonance: int,
-    neutral: int,
-    opposition: int,
-    unexperienced: int,
-    harmful: int,
-    marker_credits: list[float],
-    base_threshold: float = 0.15,
-    min_samples: int = 10,
-    current_ts: float = 0.0,
+    content_id: str,
+    content_type: str,
+    reaction_summary: dict,
+    marker_credits: Optional[dict] = None,
 ) -> dict:
-    """同步版本的 Rust governance-service 调用"""
     url = f"{GOVERNANCE_SERVICE_URL}/evaluate"
-
     payload = {
-        "anchor_id": anchor_id,
-        "resonance": resonance,
-        "neutral": neutral,
-        "opposition": opposition,
-        "unexperienced": unexperienced,
-        "harmful": harmful,
-        "marker_credits": marker_credits,
-        "base_threshold": base_threshold,
-        "min_samples": min_samples,
-        "current_ts": current_ts,
+        "content_id": content_id,
+        "content_type": content_type,
+        "reaction_summary": reaction_summary,
     }
+    if marker_credits:
+        payload["marker_credits"] = marker_credits
 
     try:
-        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
-            response = client.post(url, json=payload)
+        client = _get_sync_client()
+        response = client.post(url, json=payload)
 
-            if response.status_code != 200:
-                raise RustEngineError(
-                    f"Rust 治理服务返回 {response.status_code}: {response.text}"
-                )
+        if response.status_code != 200:
+            raise RustEngineError(
+                f"Rust governance 服务返回 {response.status_code}: {response.text}"
+            )
 
-            data = response.json()
-
-            if "error" in data:
-                raise RustEngineError(f"Rust 治理服务错误: {data['error']}")
-
-            return data
+        data = response.json()
+        if "error" in data:
+            raise RustEngineError(f"Rust governance 服务错误: {data['error']}")
+        return data
 
     except httpx.TimeoutException:
-        raise RustEngineError(f"Rust 治理服务超时 ({REQUEST_TIMEOUT}s)")
+        raise RustEngineError(f"Rust governance 服务超时 ({REQUEST_TIMEOUT}s)")
     except httpx.ConnectError:
-        raise RustEngineError(f"无法连接 Rust 治理服务: {url}")
+        raise RustEngineError(f"无法连接 Rust governance 服务: {url}")
+    except RustEngineError:
+        raise
     except Exception as e:
-        if isinstance(e, RustEngineError):
-            raise
-        raise RustEngineError(f"Rust 治理服务调用异常: {e}")
-
-
-async def call_governance_detect_anomaly(
-    timestamps: list[float],
-    marker_ids: list[str],
-    reactions_by_type: dict[str, tuple[int, int]],
-    time_window_seconds: float = 300.0,
-    threshold: int = 10,
-    unexperienced_threshold: float = 0.4,
-    min_samples: int = 10,
-) -> dict:
-    """调用 Rust governance-service 的 /detect-anomaly 端点"""
-    url = f"{GOVERNANCE_SERVICE_URL}/detect-anomaly"
-
-    payload = {
-        "timestamps": timestamps,
-        "marker_ids": marker_ids,
-        "reactions_by_type": reactions_by_type,
-        "time_window_seconds": time_window_seconds,
-        "threshold": threshold,
-        "unexperienced_threshold": unexperienced_threshold,
-        "min_samples": min_samples,
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            response = await client.post(url, json=payload)
-
-            if response.status_code != 200:
-                raise RustEngineError(
-                    f"Rust 治理服务返回 {response.status_code}: {response.text}"
-                )
-
-            data = response.json()
-
-            if "error" in data:
-                raise RustEngineError(f"Rust 治理服务错误: {data['error']}")
-
-            return data
-
-    except httpx.TimeoutException:
-        raise RustEngineError(f"Rust 治理服务超时 ({REQUEST_TIMEOUT}s)")
-    except httpx.ConnectError:
-        raise RustEngineError(f"无法连接 Rust 治理服务: {url}")
-    except Exception as e:
-        if isinstance(e, RustEngineError):
-            raise
-        raise RustEngineError(f"Rust 治理服务调用异常: {e}")
+        raise RustEngineError(f"Rust governance 服务调用异常: {e}")

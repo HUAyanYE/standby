@@ -14,6 +14,16 @@ class StandbyColors {
   static const text2 = Color(0xFF999999);
   static const text3 = Color(0xFF666666);
   static const border = Color(0x0FFFFFFF);
+
+  // 亮色主题
+  static const lightBackground = Color(0xFFF5F5F5);
+  static const lightSurface1 = Color(0xFFFFFFFF);
+  static const lightSurface2 = Color(0xFFF0F0F0);
+  static const lightSurface3 = Color(0xFFE8E8E8);
+  static const lightText = Color(0xFF1A1A1A);
+  static const lightText2 = Color(0xFF666666);
+  static const lightText3 = Color(0xFF999999);
+  static const lightBorder = Color(0x1A000000);
 }
 
 class StandbyTextStyles {

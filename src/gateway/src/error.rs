@@ -37,6 +37,8 @@ struct ErrorResponse {
 struct ErrorDetail {
     code: String,
     message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_id: Option<String>,
 }
 
 impl IntoResponse for ApiError {
@@ -55,6 +57,7 @@ impl IntoResponse for ApiError {
             error: ErrorDetail {
                 code: code.to_string(),
                 message: self.to_string(),
+                request_id: None, // 将由中间件注入
             },
         };
 

@@ -1,13 +1,13 @@
-/// 媒体预览组件 — 显示图片、音频、视频预览
-
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/seedstone.dart';
+import '../../app/theme.dart';
+import '../../app/theme_colors.dart';
 
-/// 媒体预览组件
 class MediaPreview extends StatelessWidget {
-  final dynamic media; // MediaRef 或 File
-  final bool isLocal; // 是否本地文件
+  final dynamic media;
+  final bool isLocal;
   final VoidCallback? onDelete;
   final double? width;
   final double? height;
@@ -31,7 +31,6 @@ class MediaPreview extends StatelessWidget {
     return const SizedBox.shrink();
   }
 
-  /// 本地文件预览
   Widget _buildLocalPreview(BuildContext context, File file) {
     final path = file.path.toLowerCase();
     if (path.endsWith('.jpg') || path.endsWith('.jpeg') || path.endsWith('.png') || path.endsWith('.webp')) {
@@ -44,7 +43,6 @@ class MediaPreview extends StatelessWidget {
     return _buildGenericPreview(context, '文件');
   }
 
-  /// 远程媒体预览
   Widget _buildRemotePreview(BuildContext context, MediaRef mediaRef) {
     switch (mediaRef.mediaType) {
       case 'image':
@@ -58,20 +56,15 @@ class MediaPreview extends StatelessWidget {
     }
   }
 
-  /// 图片预览
-  Widget _buildImagePreview(
-    BuildContext context, {
-    File? file,
-    MediaRef? mediaRef,
-  }) {
+  Widget _buildImagePreview(BuildContext context, {File? file, MediaRef? mediaRef}) {
     return Stack(
       children: [
         Container(
           width: width ?? double.infinity,
           height: height ?? 200,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            color: Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(StandbyRadius.xl),
+            color: context.surface2,
           ),
           clipBehavior: Clip.antiAlias,
           child: file != null
@@ -79,13 +72,19 @@ class MediaPreview extends StatelessWidget {
                   file,
                   fit: BoxFit.cover,
                   errorBuilder: (context, error, stackTrace) =>
-                      _buildErrorWidget('图片加载失败'),
+                      _buildErrorWidget(context, '图片加载失败'),
                 )
-              : Image.network(
-                  mediaRef?.storageUrl ?? '',
+              : CachedNetworkImage(
+                  imageUrl: mediaRef?.storageUrl ?? '',
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) =>
-                      _buildErrorWidget('图片加载失败'),
+                  placeholder: (context, url) => Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: context.text3Color,
+                    ),
+                  ),
+                  errorWidget: (context, url, error) =>
+                      _buildErrorWidget(context, '图片加载失败'),
                 ),
         ),
         if (onDelete != null)
@@ -98,15 +97,14 @@ class MediaPreview extends StatelessWidget {
     );
   }
 
-  /// 音频预览
   Widget _buildAudioPreview(BuildContext context, {MediaRef? mediaRef}) {
     return Container(
       width: width ?? double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        color: Colors.indigo.shade50,
-        border: Border.all(color: Colors.indigo.shade200),
+        borderRadius: BorderRadius.circular(StandbyRadius.xl),
+        color: StandbyColors.primarySoft,
+        border: Border.all(color: StandbyColors.primary.withAlpha(40)),
       ),
       child: Row(
         children: [
@@ -115,11 +113,11 @@ class MediaPreview extends StatelessWidget {
             height: 48,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.indigo.shade100,
+              color: StandbyColors.primarySoft,
             ),
-            child: Icon(
+            child: const Icon(
               Icons.music_note,
-              color: Colors.indigo.shade400,
+              color: StandbyColors.primary,
             ),
           ),
           const SizedBox(width: 12),
@@ -132,7 +130,7 @@ class MediaPreview extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
-                    color: Colors.indigo.shade700,
+                    color: context.textColor,
                   ),
                 ),
                 if (mediaRef?.durationSeconds != null)
@@ -140,15 +138,15 @@ class MediaPreview extends StatelessWidget {
                     _formatDuration(mediaRef!.durationSeconds!),
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.indigo.shade400,
+                      color: context.text3Color,
                     ),
                   ),
               ],
             ),
           ),
-          Icon(
+          const Icon(
             Icons.play_circle_outline,
-            color: Colors.indigo.shade400,
+            color: StandbyColors.primary,
             size: 32,
           ),
           if (onDelete != null) ...[
@@ -160,7 +158,6 @@ class MediaPreview extends StatelessWidget {
     );
   }
 
-  /// 视频预览
   Widget _buildVideoPreview(BuildContext context, {MediaRef? mediaRef}) {
     return Stack(
       children: [
@@ -168,8 +165,8 @@ class MediaPreview extends StatelessWidget {
           width: width ?? double.infinity,
           height: height ?? 200,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            color: Colors.grey.shade900,
+            borderRadius: BorderRadius.circular(StandbyRadius.xl),
+            color: context.surface2,
           ),
           child: Center(
             child: Column(
@@ -178,14 +175,14 @@ class MediaPreview extends StatelessWidget {
                 Icon(
                   Icons.play_circle_fill,
                   size: 48,
-                  color: Colors.white.withOpacity(0.8),
+                  color: context.text2Color,
                 ),
                 const SizedBox(height: 8),
                 Text(
                   '视频',
                   style: TextStyle(
                     fontSize: 14,
-                    color: Colors.white.withOpacity(0.8),
+                    color: context.text2Color,
                   ),
                 ),
                 if (mediaRef?.durationSeconds != null)
@@ -193,7 +190,7 @@ class MediaPreview extends StatelessWidget {
                     _formatDuration(mediaRef!.durationSeconds!),
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.white.withOpacity(0.6),
+                      color: context.text3Color,
                     ),
                   ),
               ],
@@ -210,25 +207,24 @@ class MediaPreview extends StatelessWidget {
     );
   }
 
-  /// 通用预览
   Widget _buildGenericPreview(BuildContext context, String label) {
     return Container(
       width: width ?? double.infinity,
       height: height ?? 100,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        color: Colors.grey.shade100,
-        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(StandbyRadius.xl),
+        color: context.surface2,
+        border: Border.all(color: context.borderColor),
       ),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.attach_file, color: Colors.grey.shade400),
+            Icon(Icons.attach_file, color: context.text3Color),
             const SizedBox(height: 4),
             Text(
               label,
-              style: TextStyle(color: Colors.grey.shade600),
+              style: TextStyle(color: context.text2Color),
             ),
           ],
         ),
@@ -236,24 +232,22 @@ class MediaPreview extends StatelessWidget {
     );
   }
 
-  /// 错误组件
-  Widget _buildErrorWidget(String message) {
+  Widget _buildErrorWidget(BuildContext context, String message) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.broken_image, color: Colors.grey.shade400, size: 32),
+          Icon(Icons.broken_image, color: context.text3Color, size: 32),
           const SizedBox(height: 4),
           Text(
             message,
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+            style: TextStyle(fontSize: 12, color: context.text3Color),
           ),
         ],
       ),
     );
   }
 
-  /// 删除按钮
   Widget _buildDeleteButton() {
     return GestureDetector(
       onTap: onDelete,
@@ -273,7 +267,6 @@ class MediaPreview extends StatelessWidget {
     );
   }
 
-  /// 格式化时长
   String _formatDuration(double seconds) {
     final duration = Duration(milliseconds: (seconds * 1000).round());
     final minutes = duration.inMinutes;

@@ -18,6 +18,10 @@ pub struct ComputeResonanceRequest {
     pub opinion_embedding: Vec<f32>,
     pub anchor_embedding: Vec<f32>,
     pub existing_embeddings: Vec<Vec<f32>>,
+    #[serde(default)]
+    pub harmful_ratio: f64,
+    #[serde(default)]
+    pub unexperienced_ratio: f64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -64,8 +68,8 @@ impl ResonanceService {
             opinion_text: request.opinion_text,
             emotion_word,
             timestamp: 0.0,
-            harmful_ratio: 0.0,
-            unexperienced_ratio: 0.0,
+            harmful_ratio: request.harmful_ratio,
+            unexperienced_ratio: request.unexperienced_ratio,
         };
 
         let anchor = Anchor {
@@ -138,13 +142,18 @@ async fn handle_compute(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 初始化日志
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
 
     let port: u16 = std::env::var("PORT")
         .unwrap_or_else(|_| "8095".into())
         .parse()?;
 
-    println!("Resonance Service 启动在 0.0.0.0:{}", port);
+    tracing::info!("Resonance Service 启动在 0.0.0.0:{}", port);
 
     // GET /health
     let health = warp::get()
@@ -154,17 +163,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             warp::reply::json(&serde_json::json!({"status": "ok"}))
         });
 
-    // POST /compute
+    // POST /compute (带请求体大小限制)
     let route = warp::post()
         .and(warp::path("compute"))
+        .and(warp::body::content_length_limit(1024 * 1024)) // 1MB
         .and(warp::body::bytes().map(|bytes: bytes::Bytes| {
             String::from_utf8_lossy(&bytes).to_string()
         }))
         .and_then(handle_compute);
 
-    warp::serve(health.or(route))
-        .run(([0, 0, 0, 0], port))
-        .await;
+    let (_, server) = warp::serve(health.or(route))
+        .bind_with_graceful_shutdown(
+            ([0, 0, 0, 0], port),
+            async {
+                tokio::signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
+                tracing::info!("收到关闭信号，正在优雅关闭...");
+            },
+        );
+
+    server.await;
 
     Ok(())
 }

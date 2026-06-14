@@ -23,11 +23,13 @@ pub struct EngineStatus {
 pub async fn health_check(State(state): State<AppState>) -> Json<HealthResponse> {
     let mut engines = state.engines.clone();
 
+    let timeout = std::time::Duration::from_secs(3);
+
     let (anchor, resonance, governance, context) = tokio::join!(
-        engines.anchor.check_health(),
-        engines.resonance.check_health(),
-        engines.governance.check_health(),
-        engines.context.check_health(),
+        async { tokio::time::timeout(timeout, engines.anchor.check_health()).await.unwrap_or(false) },
+        async { tokio::time::timeout(timeout, engines.resonance.check_health()).await.unwrap_or(false) },
+        async { tokio::time::timeout(timeout, engines.governance.check_health()).await.unwrap_or(false) },
+        async { tokio::time::timeout(timeout, engines.context.check_health()).await.unwrap_or(false) },
     );
 
     let all_ok = anchor && resonance && governance && context;
