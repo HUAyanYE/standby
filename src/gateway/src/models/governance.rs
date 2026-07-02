@@ -29,14 +29,14 @@ impl GovernanceLevel {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn from_level_str(s: &str) -> Self {
         match s {
-            "L0_NORMAL" => Self::L0Normal,
-            "L1_OBSERVE" => Self::L1Observe,
-            "L2_DEMOTED" => Self::L2Demoted,
-            "L3_SUSPENDED" => Self::L3Suspended,
-            "L4_REMOVED" => Self::L4Removed,
-            "DISPUTED" => Self::Disputed,
+            "L0_正常" | "L0_NORMAL" => Self::L0Normal,
+            "L1_观察" | "L1_OBSERVE" => Self::L1Observe,
+            "L2_降权" | "L2_DEMOTED" => Self::L2Demoted,
+            "L3_暂停" | "L3_SUSPENDED" => Self::L3Suspended,
+            "L4_移除" | "L4_REMOVED" => Self::L4Removed,
+            "争议" | "DISPUTED" => Self::Disputed,
             _ => Self::L0Normal,
         }
     }

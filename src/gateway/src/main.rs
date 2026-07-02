@@ -6,15 +6,6 @@
 //! - 请求日志
 //! - 引擎代理转发
 
-mod config;
-mod db;
-mod engine_clients;
-mod error;
-mod middleware;
-mod models;
-mod proto;
-mod routes;
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,17 +16,10 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
-use config::GatewayConfig;
-use engine_clients::EngineClients;
-use middleware::{device_auth, jwt, rate_limit, request_log};
-
-/// 应用状态 — 注入到所有 handler
-#[derive(Clone)]
-pub struct AppState {
-    pub config: Arc<GatewayConfig>,
-    pub engines: EngineClients,
-    pub db: sqlx::PgPool,
-}
+use standby_gateway::AppState;
+use standby_gateway::config::GatewayConfig;
+use standby_gateway::middleware::{device_auth, jwt, rate_limit, request_log};
+use standby_gateway::routes;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -55,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("端口: {}", config.port);
 
     // 连接引擎
-    let engines = EngineClients::new(
+    let engines = standby_gateway::engine_clients::EngineClients::new(
         &config.engine_anchor_url,
         &config.engine_resonance_url,
         &config.engine_governance_url,
@@ -66,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("引擎连接已建立");
 
     // 连接数据库
-    let db_pool = db::create_pool(&config).await?;
+    let db_pool = standby_gateway::db::create_pool(&config).await?;
 
     // 速率限制器
     let rate_limiter = Arc::new(rate_limit::RateLimiter::new(config.rate_limit_per_minute));

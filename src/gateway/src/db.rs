@@ -6,7 +6,7 @@ use sqlx::PgPool;
 use crate::config::GatewayConfig;
 
 /// 创建 PostgreSQL 连接池
-pub async fn create_pool(config: &GatewayConfig) -> anyhow::Result<PgPool> {
+pub async fn create_pool(_config: &GatewayConfig) -> anyhow::Result<PgPool> {
     let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
         let password = std::env::var("POSTGRES_PASSWORD")
             .expect("POSTGRES_PASSWORD 环境变量必须设置");

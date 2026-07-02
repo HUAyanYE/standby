@@ -52,15 +52,15 @@ impl AnchorClient {
     ) -> Result<(String, f32), ApiError> {
         let inner = &mut self.inner;
         let timeout = self.timeout;
-        let request = tonic::Request::new(super::super::proto::engines::GenerateAnchorRequest {
-            source_texts: req.source_texts,
-            topic_hints: req.topic_hints.unwrap_or_default(),
-            source: req.source.unwrap_or_else(|| "user".into()),
-            modality: req.modality.unwrap_or_else(|| "text".into()),
-        });
 
         let response = with_timeout(timeout, "generate_anchor", || async {
-            inner.generate_anchor(request.clone()).await
+            let request = tonic::Request::new(super::super::proto::engines::GenerateAnchorRequest {
+                source_texts: req.source_texts.clone(),
+                topic_hints: req.topic_hints.clone().unwrap_or_default(),
+                source: req.source.clone().unwrap_or_else(|| "user".into()),
+                modality: req.modality.clone().unwrap_or_else(|| "text".into()),
+            });
+            inner.generate_anchor(request).await
         }).await?;
 
         let resp = response.into_inner();
@@ -77,18 +77,20 @@ impl AnchorClient {
     ) -> Result<(Vec<AnchorSummary>, i32, bool), ApiError> {
         let inner = &mut self.inner;
         let retry_config = &self.retry_config;
-        let timeout = self.timeout;
+        let _timeout = self.timeout;
 
-        let request = tonic::Request::new(super::super::proto::engines::ListAnchorsRequest {
-            page: params.page.unwrap_or(1) as i32,
-            page_size: params.page_size.unwrap_or(20) as i32,
-            topic_filter: params.topic_filter.unwrap_or_default(),
-        });
+        let page = params.page.unwrap_or(1) as i32;
+        let page_size = params.page_size.unwrap_or(20) as i32;
+        let topic_filter = params.topic_filter.unwrap_or_default();
 
         let response = with_retry(retry_config, "list_anchors", || {
-            let req = request.clone();
-            let client = inner.clone();
-            async move { client.list_anchors(req).await }
+            let mut client = inner.clone();
+            let request = tonic::Request::new(super::super::proto::engines::ListAnchorsRequest {
+                page,
+                page_size,
+                topic_filter: topic_filter.clone(),
+            });
+            async move { client.list_anchors(request).await }
         }).await?;
 
         let resp = response.into_inner();

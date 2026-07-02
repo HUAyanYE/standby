@@ -21,7 +21,7 @@ pub struct EngineStatus {
 
 /// GET /health
 pub async fn health_check(State(state): State<AppState>) -> Json<HealthResponse> {
-    let mut engines = state.engines.clone();
+    let engines = state.engines.clone();
 
     let timeout = std::time::Duration::from_secs(3);
 

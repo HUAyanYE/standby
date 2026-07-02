@@ -2,7 +2,7 @@ use tonic::transport::Channel;
 
 use crate::error::ApiError;
 use crate::proto::engines::governance_engine_client::GovernanceEngineClient;
-use crate::proto::common::{GovernanceLevel, ReactionSummary};
+use crate::proto::common::ReactionSummary;
 use crate::proto::engines::MarkerCreditInfo;
 use crate::models::governance::*;
 
@@ -71,19 +71,20 @@ impl GovernanceClient {
         let decision = response.decision
             .ok_or_else(|| ApiError::Internal("治理引擎返回空决策".into()))?;
 
-        let level_str = match decision.level() {
-            GovernanceLevel::L0Normal => "L0_正常",
-            GovernanceLevel::L1Observe => "L1_观察",
-            GovernanceLevel::L2Demoted => "L2_降权",
-            GovernanceLevel::L3Suspended => "L3_暂停",
-            GovernanceLevel::L4Removed => "L4_移除",
-            GovernanceLevel::Disputed => "争议",
-            _ => "L0_正常",
+        // 将 proto GovernanceLevel 转换为 model GovernanceLevel
+        let level = match decision.level() {
+            crate::proto::common::GovernanceLevel::L0Normal => GovernanceLevel::L0Normal,
+            crate::proto::common::GovernanceLevel::L1Observe => GovernanceLevel::L1Observe,
+            crate::proto::common::GovernanceLevel::L2Demoted => GovernanceLevel::L2Demoted,
+            crate::proto::common::GovernanceLevel::L3Suspended => GovernanceLevel::L3Suspended,
+            crate::proto::common::GovernanceLevel::L4Removed => GovernanceLevel::L4Removed,
+            crate::proto::common::GovernanceLevel::Disputed => GovernanceLevel::Disputed,
+            _ => GovernanceLevel::L0Normal,
         };
 
         Ok(GovernanceDecision {
             content_id: decision.content_id,
-            level: level_str.to_string(),
+            level,
             harmful_weight: decision.harmful_weight,
             marker_avg_credit: decision.marker_avg_credit,
             reason: decision.reason,

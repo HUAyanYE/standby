@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "Standby API Gateway — REST-to-gRPC proxy with device authentication"
 
+[lib]
+name = "standby_gateway"
+path = "src/lib.rs"
+
 [[bin]]
 name = "standby-gateway"
 path = "src/main.rs"
@@ -54,6 +58,14 @@ hex = "0.4"
 
 # 数据库
 sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono"] }
+
+[dev-dependencies]
+# 测试工具
+tokio-test = "0.4"
+tower = { version = "0.4", features = ["util"] }
+http-body-util = "0.1"
+hyper = "1"
+hyper-util = { version = "0.1", features = ["tokio"] }
 
 [build-dependencies]
 tonic-build = "0.12"

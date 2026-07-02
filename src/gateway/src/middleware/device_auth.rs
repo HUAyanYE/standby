@@ -55,7 +55,7 @@ pub async fn device_auth(
 
     // 从扩展中获取 Claims (JWT 中间件已注入)
     // 如果没有 Claims，说明是未认证请求，跳过签名验证
-    if let Some(claims) = request.extensions().get::<Claims>() {
+    if let Some(_claims) = request.extensions().get::<Claims>() {
         // 验证签名 — 使用配置中的 device_secret 而非 device_id
         let method = request.method().as_str();
         let path = request.uri().path();

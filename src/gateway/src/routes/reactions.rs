@@ -104,8 +104,8 @@ pub async fn get_resonance_traces(
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<SuccessResponse<serde_json::Value>>, ApiError> {
     let mut client = state.engines.resonance.as_ref().clone();
-    let page = params.validated_page();
-    let page_size = params.validated_page_size();
+    let _page = params.validated_page();
+    let _page_size = params.validated_page_size();
 
     // 使用当前用户 ID 查找共鸣对
     let pairs = client.find_resonance_pairs(&claims.sub).await?;
